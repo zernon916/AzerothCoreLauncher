@@ -1,0 +1,97 @@
+<Window x:Class="AzerothCoreLauncher.AccountEditPopup"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Edit Account" Height="600" Width="900" WindowStartupLocation="CenterOwner">
+    <Grid Background="#FF1E1E1E" Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Account Name -->
+        <StackPanel Grid.Row="0" Margin="0,10">
+            <TextBlock Text="Account Name:" Foreground="White" Margin="0,0,0,5"/>
+            <TextBlock x:Name="TxtAccountName" Text="" Foreground="LightGreen" FontSize="14" FontWeight="Bold"/>
+        </StackPanel>
+        
+        <!-- Account Info -->
+        <Grid Grid.Row="1" Margin="0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            
+            <TextBlock Grid.Column="0" Grid.Row="0" Text="Email:" Foreground="White" Margin="5"/>
+            <TextBox x:Name="TxtEmail" Grid.Column="1" Grid.Row="0" Height="30" Margin="5"/>
+            
+            <TextBlock Grid.Column="0" Grid.Row="1" Text="Last Login:" Foreground="White" Margin="5"/>
+            <TextBlock x:Name="TxtLastLogin" Grid.Column="1" Grid.Row="1" Text="" Foreground="LightGray" Margin="5"/>
+            
+            <TextBlock Grid.Column="0" Grid.Row="2" Text="Last IP:" Foreground="White" Margin="5"/>
+            <TextBlock x:Name="TxtLastIP" Grid.Column="1" Grid.Row="2" Text="" Foreground="LightGray" Margin="5"/>
+            
+            <TextBlock Grid.Column="0" Grid.Row="3" Text="Join Date:" Foreground="White" Margin="5"/>
+            <TextBlock x:Name="TxtJoinDate" Grid.Column="1" Grid.Row="3" Text="" Foreground="LightGray" Margin="5"/>
+            
+            <TextBlock Grid.Column="0" Grid.Row="4" Text="Status:" Foreground="White" Margin="5"/>
+            <TextBlock x:Name="TxtStatus" Grid.Column="1" Grid.Row="4" Text="" Foreground="LightGray" Margin="5"/>
+            
+            <TextBlock Grid.Column="0" Grid.Row="5" Text="Total Time:" Foreground="White" Margin="5"/>
+            <TextBlock x:Name="TxtTotalTime" Grid.Column="1" Grid.Row="5" Text="" Foreground="LightGray" Margin="5"/>
+        </Grid>
+        
+        <!-- Password Change -->
+        <StackPanel Grid.Row="2" Margin="0,10">
+            <TextBlock Text="Change Password:" Foreground="White" Margin="0,0,0,5"/>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <PasswordBox x:Name="TxtNewPassword" Grid.Column="0" Height="30" Margin="0,0,5,0"/>
+                <Button x:Name="BtnChangePassword" Grid.Column="1" Content="Change Password" Width="120" Height="30" Click="BtnChangePassword_Click"/>
+            </Grid>
+        </StackPanel>
+        
+        <!-- Save Email -->
+        <StackPanel Grid.Row="3" Margin="0,10">
+            <Button x:Name="BtnSaveEmail" Content="Save Email" Width="120" Height="30" HorizontalAlignment="Left" Click="BtnSaveEmail_Click"/>
+        </StackPanel>
+        
+        <!-- Characters -->
+        <StackPanel Grid.Row="4" Margin="0,10">
+            <TextBlock Text="Characters:" Foreground="White" Margin="0,0,0,5"/>
+            <DataGrid x:Name="DgCharacters" Height="200" AutoGenerateColumns="False" IsReadOnly="True">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
+                    <DataGridTextColumn Header="Race" Binding="{Binding Race}" Width="80"/>
+                    <DataGridTextColumn Header="Class" Binding="{Binding Class}" Width="80"/>
+                    <DataGridTextColumn Header="Level" Binding="{Binding Level}" Width="60"/>
+                </DataGrid.Columns>
+            </DataGrid>
+        </StackPanel>
+        
+        <!-- Action Buttons -->
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,20">
+            <Button x:Name="BtnBanAccount" Content="Ban Account" Width="120" Height="30" Margin="5"/>
+            <Button x:Name="BtnUnbanAccount" Content="Unban Account" Width="120" Height="30" Margin="5"/>
+            <Button x:Name="BtnViewBanHistory" Content="View Ban History" Width="140" Height="30" Margin="5"/>
+        </StackPanel>
+        
+        <!-- Close Button -->
+        <Button Grid.Row="6" Content="Close" Width="100" Height="30" HorizontalAlignment="Center" Margin="0,10" Click="BtnClose_Click"/>
+    </Grid>
+</Window>

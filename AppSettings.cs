@@ -14,6 +14,7 @@ namespace AzerothCoreLauncher
         public string MySqlHost { get; set; } = "localhost";
         public string MySqlPort { get; set; } = "3306";
         public string CharacterDatabase { get; set; } = "acore_characters";
+        public string AuthDatabase { get; set; } = "acore_auth";
         public string MySqlUser { get; set; } = "root";
         public string MySqlPassword { get; set; } = "password";
         
@@ -27,6 +28,7 @@ namespace AzerothCoreLauncher
         public int MaxAutoRestarts { get; set; } = 3;
         public int AutoRestartDelaySeconds { get; set; } = 5;
         public bool EnableCrashLogAnalysis { get; set; } = true;
+        public bool KillExistingServersOnStartup { get; set; } = true;
         
         // Server Health Monitoring Settings
         public bool EnableHealthMonitoring { get; set; } = true;
@@ -36,6 +38,8 @@ namespace AzerothCoreLauncher
         // Database Backup Settings
         public bool BackupDatabaseBeforeRestart { get; set; } = false;
         public string BackupDirectory { get; set; } = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Backups");
+        public string MySqlDumpPath { get; set; } = "mysqldump"; // Path to mysqldump executable
+        public string MySqlPath { get; set; } = "mysql"; // Path to mysql executable
         
         private static readonly string SettingsFilePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -48,7 +52,7 @@ namespace AzerothCoreLauncher
             try
             {
                 var directory = Path.GetDirectoryName(SettingsFilePath);
-                if (!Directory.Exists(directory))
+                if (directory != null && !Directory.Exists(directory))
                     Directory.CreateDirectory(directory);
                 
                 if (File.Exists(SettingsFilePath))
@@ -70,7 +74,7 @@ namespace AzerothCoreLauncher
             try
             {
                 var directory = Path.GetDirectoryName(SettingsFilePath);
-                if (!Directory.Exists(directory))
+                if (directory != null && !Directory.Exists(directory))
                     Directory.CreateDirectory(directory);
                 
                 var options = new JsonSerializerOptions { WriteIndented = true };

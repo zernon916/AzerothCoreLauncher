@@ -1,0 +1,51 @@
+<Window x:Class="AzerothCoreLauncher.PlayerPopup"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Player Info" Height="300" Width="400"
+        ResizeMode="CanResize"
+        WindowStyle="SingleBorderWindow"
+        ShowInTaskbar="False"
+        Background="#FF2D2D30">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Header -->
+        <TextBlock x:Name="TxtPlayerName" Grid.Row="0" Text="PlayerName - Class/Race" 
+                   FontSize="18" FontWeight="Bold" Foreground="White" Margin="0,0,0,15"/>
+        
+        <!-- Content -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            
+            <!-- Portrait -->
+            <Border Grid.Column="0" Width="100" Height="100" 
+                    BorderBrush="#FF555555" BorderThickness="2" 
+                    Background="#FF1E1E1E" Margin="0,0,15,0"
+                    Visibility="Collapsed">
+                <Image x:Name="ImgPortrait" Stretch="UniformToFill"/>
+            </Border>
+            
+            <!-- Info -->
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                <TextBlock x:Name="TxtLevel" Text="Level: 80" FontSize="14" Foreground="White" Margin="0,5"/>
+                <TextBlock x:Name="TxtZone" Text="Zone: Stormwind" FontSize="14" Foreground="White" Margin="0,5"/>
+                <TextBlock x:Name="TxtOnline" Text="Online: ●" FontSize="14" Foreground="White" Margin="0,5"/>
+                <TextBlock x:Name="TxtIP" Text="IP: 192.168.1.100" FontSize="14" Foreground="White" Margin="0,5"/>
+            </StackPanel>
+        </Grid>
+        
+        <!-- Buttons -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,15,0,0">
+            <Button x:Name="BtnKick" Content="Kick" Width="100" Height="35" Margin="5" Click="BtnKick_Click"/>
+            <Button x:Name="BtnBan" Content="Ban" Width="100" Height="35" Margin="5" Click="BtnBan_Click"/>
+            <Button x:Name="BtnDetails" Content="Details" Width="100" Height="35" Margin="5" Click="BtnDetails_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

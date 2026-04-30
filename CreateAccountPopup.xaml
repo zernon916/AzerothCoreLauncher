@@ -1,0 +1,66 @@
+<Window x:Class="AzerothCoreLauncher.CreateAccountPopup"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Create Account" Height="400" Width="500" WindowStartupLocation="CenterOwner">
+    <Grid Background="#FF1E1E1E" Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Username -->
+        <StackPanel Grid.Row="0" Margin="0,10">
+            <TextBlock Text="Username:" Foreground="White" Margin="0,0,0,5"/>
+            <TextBox x:Name="TxtUsername" Height="30" Margin="0,0,0,5"/>
+        </StackPanel>
+        
+        <!-- Password -->
+        <StackPanel Grid.Row="1" Margin="0,10">
+            <TextBlock Text="Password:" Foreground="White" Margin="0,0,0,5"/>
+            <PasswordBox x:Name="TxtPassword" Height="30" Margin="0,0,0,5"/>
+        </StackPanel>
+        
+        <!-- Confirm Password -->
+        <StackPanel Grid.Row="2" Margin="0,10">
+            <TextBlock Text="Confirm Password:" Foreground="White" Margin="0,0,0,5"/>
+            <PasswordBox x:Name="TxtConfirmPassword" Height="30" Margin="0,0,0,5"/>
+        </StackPanel>
+        
+        <!-- Email -->
+        <StackPanel Grid.Row="3" Margin="0,10">
+            <TextBlock Text="Email:" Foreground="White" Margin="0,0,0,5"/>
+            <TextBox x:Name="TxtEmail" Height="30" Margin="0,0,0,5"/>
+        </StackPanel>
+        
+        <!-- Expansion -->
+        <StackPanel Grid.Row="4" Margin="0,10">
+            <TextBlock Text="Expansion:" Foreground="White" Margin="0,0,0,5"/>
+            <ComboBox x:Name="CmbExpansion" Height="30" Margin="0,0,0,5">
+                <ComboBoxItem Content="Classic" Tag="0"/>
+                <ComboBoxItem Content="The Burning Crusade" Tag="1"/>
+                <ComboBoxItem Content="Wrath of the Lich King" Tag="2" IsSelected="True"/>
+                <ComboBoxItem Content="Cataclysm" Tag="3"/>
+                <ComboBoxItem Content="Mists of Pandaria" Tag="4"/>
+                <ComboBoxItem Content="Warlords of Draenor" Tag="5"/>
+                <ComboBoxItem Content="Legion" Tag="6"/>
+                <ComboBoxItem Content="Battle for Azeroth" Tag="7"/>
+                <ComboBoxItem Content="Shadowlands" Tag="8"/>
+                <ComboBoxItem Content="Dragonflight" Tag="9"/>
+            </ComboBox>
+        </StackPanel>
+        
+        <!-- Create Button -->
+        <StackPanel Grid.Row="5" Margin="0,20">
+            <Button x:Name="BtnCreate" Content="Create Account" Width="150" Height="35" HorizontalAlignment="Center" Click="BtnCreate_Click"/>
+        </StackPanel>
+        
+        <!-- Close Button -->
+        <Button Grid.Row="6" Content="Close" Width="100" Height="30" HorizontalAlignment="Center" Margin="0,10" Click="BtnClose_Click"/>
+    </Grid>
+</Window>

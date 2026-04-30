@@ -130,44 +130,6 @@
                 </Grid>
             </TabItem>
             
-            <!-- Players Tab -->
-            <TabItem Header="Players">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                    </Grid.RowDefinitions>
-                    
-                    <!-- Player Search -->
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="10">
-                        <TextBox x:Name="PlayerSearch" Width="200" Height="30" Margin="5"/>
-                        <Button Content="Search" Width="80" Height="30" Margin="5" Click="BtnSearchPlayer_Click"/>
-                        <Button Content="Refresh" Width="80" Height="30" Margin="5" Click="BtnRefreshPlayers_Click"/>
-                        <Separator Width="20"/>
-                        <ComboBox x:Name="CmbGMAction" Width="150" Height="30" Margin="5">
-                            <ComboBoxItem Content="Kick"/>
-                            <ComboBoxItem Content="Ban"/>
-                            <ComboBoxItem Content="Mute"/>
-                            <ComboBoxItem Content="GM On"/>
-                            <ComboBoxItem Content="GM Off"/>
-                        </ComboBox>
-                        <Button Content="Execute" Width="80" Height="30" Margin="5" Click="BtnExecuteGM_Click"/>
-                    </StackPanel>
-                    
-                    <!-- Player List -->
-                    <DataGrid x:Name="PlayerList" Grid.Row="1" AutoGenerateColumns="False" Margin="10"
-                              IsReadOnly="True" SelectionMode="Single">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
-                            <DataGridTextColumn Header="Race" Binding="{Binding Race}" Width="80"/>
-                            <DataGridTextColumn Header="Class" Binding="{Binding Class}" Width="80"/>
-                            <DataGridTextColumn Header="Level" Binding="{Binding Level}" Width="60"/>
-                            <DataGridTextColumn Header="Zone" Binding="{Binding Zone}" Width="150"/>
-                        </DataGrid.Columns>
-                    </DataGrid>
-                </Grid>
-            </TabItem>
-            
             <!-- Events Tab -->
             <TabItem Header="Events">
                 <Grid>
@@ -179,73 +141,181 @@
                     
                     <!-- Event Controls -->
                     <Border Grid.Row="0" BorderBrush="#FF555555" BorderThickness="1" Background="#FF222222" Padding="15" Margin="10">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
-                            
-                            <!-- Row 1: Event Name and Type -->
-                            <Grid Grid.Row="0" Margin="0,0,0,10">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="100"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="100"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel>
+                                <!-- Row 1: Event Name and Type -->
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <TextBlock Grid.Column="0" Text="Event Name" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                    <TextBox x:Name="TxtEventName" Grid.Column="1" Height="30" Margin="0,0,15,0"/>
+                                    
+                                    <TextBlock Grid.Column="2" Text="Type" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                    <ComboBox x:Name="CmbEventType" Grid.Column="3" Height="30">
+                                        <ComboBoxItem Content="Command" IsSelected="True"/>
+                                        <ComboBoxItem Content="Restart"/>
+                                        <ComboBoxItem Content="Announcement"/>
+                                    </ComboBox>
+                                </Grid>
                                 
-                                <TextBlock Grid.Column="0" Text="Event Name" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                                <TextBox x:Name="TxtEventName" Grid.Column="1" Height="30" Margin="0,0,15,0"/>
+                                <!-- Row 2: Target and Time -->
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <TextBlock Grid.Column="0" Text="Target" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                    <ComboBox x:Name="CmbEventTarget" Grid.Column="1" Height="30">
+                                        <ComboBoxItem Content="World" IsSelected="True"/>
+                                        <ComboBoxItem Content="Auth"/>
+                                    </ComboBox>
+                                    
+                                    <TextBlock Grid.Column="2" Text="Time (HH:mm)" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                    <TextBox x:Name="TxtEventTime" Grid.Column="3" Height="30" Text="00:00"/>
+                                </Grid>
                                 
-                                <TextBlock Grid.Column="2" Text="Type" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                                <ComboBox x:Name="CmbEventType" Grid.Column="3" Height="30">
-                                    <ComboBoxItem Content="Command" IsSelected="True"/>
-                                    <ComboBoxItem Content="Restart"/>
-                                    <ComboBoxItem Content="Announcement"/>
-                                </ComboBox>
-                            </Grid>
-                            
-                            <!-- Row 2: Target and Time -->
-                            <Grid Grid.Row="1" Margin="0,0,0,10">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="100"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="100"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
+                                <!-- Row 3: Command and Recurring -->
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <TextBlock Grid.Column="0" Text="Command" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                    <TextBox x:Name="TxtEventCommand" Grid.Column="1" Height="30" Margin="0,0,15,0"/>
+                                    
+                                    <CheckBox x:Name="ChkEventEnabled" Grid.Column="2" Content="Enabled" Foreground="White" VerticalAlignment="Center" Margin="0,0,15,0" IsChecked="True"/>
+                                    <CheckBox x:Name="ChkEventRecurring" Grid.Column="3" Content="Recurring" Foreground="White" VerticalAlignment="Center" Margin="0,0,15,0"/>
+                                </Grid>
                                 
-                                <TextBlock Grid.Column="0" Text="Target" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                                <ComboBox x:Name="CmbEventTarget" Grid.Column="1" Height="30">
-                                    <ComboBoxItem Content="World" IsSelected="True"/>
-                                    <ComboBoxItem Content="Auth"/>
-                                </ComboBox>
+                                <!-- Row 4: Recurrence Pattern -->
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <TextBlock Grid.Column="0" Text="Recurrence" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                    <ComboBox x:Name="CmbRecurrencePattern" Grid.Column="1" Height="30" SelectionChanged="CmbRecurrencePattern_SelectionChanged">
+                                        <ComboBoxItem Content="Daily" IsSelected="True"/>
+                                        <ComboBoxItem Content="Weekly"/>
+                                        <ComboBoxItem Content="Monthly"/>
+                                        <ComboBoxItem Content="Custom"/>
+                                    </ComboBox>
+                                    
+                                    <TextBlock Grid.Column="2" Text="Interval (days)" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0" Visibility="Collapsed" x:Name="LblInterval"/>
+                                    <TextBox x:Name="TxtRecurrenceInterval" Grid.Column="3" Height="30" Text="1" Visibility="Collapsed"/>
+                                </Grid>
                                 
-                                <TextBlock Grid.Column="2" Text="Time (HH:mm)" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                                <TextBox x:Name="TxtEventTime" Grid.Column="3" Height="30" Text="00:00"/>
-                            </Grid>
-                            
-                            <!-- Row 3: Command, Recurring, and Buttons -->
-                            <Grid Grid.Row="2">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="100"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
+                                <!-- Row 5: Weekly Days -->
+                                <Grid Margin="0,0,0,10" Visibility="Collapsed" x:Name="WeeklyDaysPanel">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <TextBlock Grid.Column="0" Text="Days" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                        <CheckBox x:Name="ChkMon" Content="Mon" Foreground="White" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                                        <CheckBox x:Name="ChkTue" Content="Tue" Foreground="White" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                                        <CheckBox x:Name="ChkWed" Content="Wed" Foreground="White" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                                        <CheckBox x:Name="ChkThu" Content="Thu" Foreground="White" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                                        <CheckBox x:Name="ChkFri" Content="Fri" Foreground="White" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                                        <CheckBox x:Name="ChkSat" Content="Sat" Foreground="White" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                                        <CheckBox x:Name="ChkSun" Content="Sun" Foreground="White" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Grid>
                                 
-                                <TextBlock Grid.Column="0" Text="Command" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                                <TextBox x:Name="TxtEventCommand" Grid.Column="1" Height="30" Margin="0,0,15,0"/>
+                                <!-- Row 6: Monthly Day -->
+                                <Grid Margin="0,0,0,10" Visibility="Collapsed" x:Name="MonthlyDayPanel">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <TextBlock Grid.Column="0" Text="Day of Month" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                    <TextBox x:Name="TxtDayOfMonth" Grid.Column="1" Height="30" Text="1"/>
+                                </Grid>
                                 
-                                <CheckBox x:Name="ChkEventRecurring" Grid.Column="2" Content="Repeat Daily" Foreground="White" VerticalAlignment="Center" Margin="0,0,15,0"/>
+                                <!-- Row 7: Event Chaining -->
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <TextBlock Grid.Column="0" Text="Chain Delay (s)" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                    <TextBox x:Name="TxtChainDelay" Grid.Column="1" Height="30" Text="0"/>
+                                    
+                                    <TextBlock Grid.Column="2" Text="Chain Events" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                    <TextBlock Grid.Column="3" Text="Select events to chain after this one" FontSize="11" Foreground="#AAAAAA" VerticalAlignment="Center"/>
+                                </Grid>
                                 
-                                <StackPanel Grid.Column="3" Orientation="Horizontal">
+                                <!-- Row 8: Conditional Execution -->
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <CheckBox x:Name="ChkHasConditions" Grid.Column="0" Content="Conditions" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0" Checked="ChkHasConditions_Checked" Unchecked="ChkHasConditions_Unchecked"/>
+                                    <TextBlock Grid.Column="1" Text="Execute only if conditions are met" FontSize="11" Foreground="#AAAAAA" VerticalAlignment="Center"/>
+                                </Grid>
+                                
+                                <!-- Row 9: Player Count Conditions -->
+                                <Grid Margin="0,0,0,10" Visibility="Collapsed" x:Name="ConditionsPanel">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <TextBlock Grid.Column="0" Text="Min Players" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                    <TextBox x:Name="TxtMinPlayers" Grid.Column="1" Height="30" Text=""/>
+                                    
+                                    <TextBlock Grid.Column="2" Text="Max Players" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                    <TextBox x:Name="TxtMaxPlayers" Grid.Column="3" Height="30" Text=""/>
+                                </Grid>
+                                
+                                <!-- Row 10: Time Window -->
+                                <Grid Margin="0,0,0,10" Visibility="Collapsed" x:Name="TimeWindowPanel">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <TextBlock Grid.Column="0" Text="Start Time" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                    <TextBox x:Name="TxtStartTimeWindow" Grid.Column="1" Height="30" Text=""/>
+                                    
+                                    <TextBlock Grid.Column="2" Text="End Time" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                    <TextBox x:Name="TxtEndTimeWindow" Grid.Column="3" Height="30" Text=""/>
+                                </Grid>
+                                
+                                <!-- Row 11: Buttons -->
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10">
                                     <Button x:Name="BtnAddEvent" Content="Add" Width="70" Height="30" Margin="0,0,5,0" Click="BtnAddEvent_Click"/>
                                     <Button x:Name="BtnDeleteEvent" Content="Delete" Width="70" Height="30" Margin="0,0,5,0" Click="BtnDeleteEvent_Click"/>
                                     <Button x:Name="BtnSaveEvents" Content="Save" Width="70" Height="30" Click="BtnSaveEvents_Click"/>
                                 </StackPanel>
-                            </Grid>
-                        </Grid>
+                            </StackPanel>
+                        </ScrollViewer>
                     </Border>
                     
                     <!-- Event List -->
@@ -264,93 +334,292 @@
                 </Grid>
             </TabItem>
             
-            <!-- Health Tab -->
-            <TabItem Header="Health">
+            <!-- Account Management Tab -->
+            <TabItem Header="Account Management" Selector.Selected="AccountManagementTab_Selected">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="20">
+                        <!-- Create Account -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                            <Button Content="Create Account" Width="120" Height="30" Margin="5" Click="BtnCreateAccount_Click"/>
+                        </StackPanel>
+                        
+                        <Separator Margin="0,10,0,10"/>
+                        
+                        <!-- Account Search -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                            <TextBox x:Name="AccountSearch" Width="200" Height="30" Margin="5"/>
+                            <Button Content="Search Account" Width="120" Height="30" Margin="5" Click="BtnSearchAccount_Click"/>
+                            <Button Content="Refresh" Width="80" Height="30" Margin="5" Click="BtnRefreshAccount_Click"/>
+                        </StackPanel>
+                        
+                        <!-- Account List -->
+                        <DataGrid x:Name="DgAccounts" Height="200" Margin="0,5" AutoGenerateColumns="False" IsReadOnly="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Username" Binding="{Binding Username}" Width="120"/>
+                                <DataGridTextColumn Header="Email" Binding="{Binding Email}" Width="200"/>
+                                <DataGridTextColumn Header="Last Login" Binding="{Binding LastLogin, StringFormat=yyyy-MM-dd HH:mm:ss}" Width="150"/>
+                                <DataGridTextColumn Header="Last IP" Binding="{Binding LastIP}" Width="120"/>
+                                <DataGridTextColumn Header="Online" Binding="{Binding Online}" Width="60"/>
+                                <DataGridTextColumn Header="Locked" Binding="{Binding Locked}" Width="60"/>
+                                <DataGridTemplateColumn Header="Actions" Width="120">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal">
+                                                <Button Content="Edit" Click="BtnEditAccount_Click" Tag="{Binding Username}" Width="40" Margin="0,0,5,0"/>
+                                                <Button Content="Delete" Click="BtnDeleteAccount_Click" Tag="{Binding Username}" Width="50" Background="#FFB22222" Foreground="White"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        
+                        <TextBlock Text="Account Management" FontSize="16" FontWeight="Bold" Margin="0,20,0,10"/>
+                        
+                        <!-- Account Ban Management -->
+                        <TextBlock Text="Account Ban Management" FontSize="14" FontWeight="Bold" Margin="0,10,0,5"/>
+                        <DataGrid x:Name="DgAccountBans" Height="200" Margin="0,5" AutoGenerateColumns="False" IsReadOnly="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Account" Binding="{Binding AccountId}" Width="120"/>
+                                <DataGridTextColumn Header="Ban Date" Binding="{Binding BanDateFormatted}" Width="150"/>
+                                <DataGridTextColumn Header="Unban Date" Binding="{Binding UnbanDateFormatted}" Width="150"/>
+                                <DataGridTextColumn Header="Banned By" Binding="{Binding BannedBy}" Width="100"/>
+                                <DataGridTextColumn Header="Reason" Binding="{Binding BanReason}" Width="*"/>
+                                <DataGridTextColumn Header="Active" Binding="{Binding ActiveFormatted}" Width="60"/>
+                                <DataGridTemplateColumn Header="Actions" Width="80">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Button Content="Edit" Click="BtnEditBannedAccount_Click" Tag="{Binding AccountId}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <Button Content="Refresh Account Bans" Width="150" Height="30" Margin="0,5" HorizontalAlignment="Left" Click="BtnRefreshAccountBans_Click"/>
+                        
+                        <Separator Margin="0,20,0,20"/>
+                        
+                        <!-- IP Ban Management -->
+                        <TextBlock Text="IP Ban Management" FontSize="14" FontWeight="Bold" Margin="0,10,0,5"/>
+                        <Grid Margin="0,5">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="TxtBanIP" Grid.Column="0" Height="30" Margin="0,0,5,0" Text=""/>
+                            <Button x:Name="BtnBanIP" Grid.Column="1" Content="Ban/Unban IP" Width="100" Height="30" Click="BtnBanIP_Click"/>
+                        </Grid>
+                        <DataGrid x:Name="DgIPBans" Height="200" Margin="0,5" AutoGenerateColumns="False" IsReadOnly="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="IP Address" Binding="{Binding IP}" Width="200"/>
+                                <DataGridTextColumn Header="Ban Date" Binding="{Binding BanDateFormatted}" Width="150"/>
+                                <DataGridTextColumn Header="Unban Date" Binding="{Binding UnbanDateFormatted}" Width="150"/>
+                                <DataGridTextColumn Header="Banned By" Binding="{Binding BannedBy}" Width="100"/>
+                                <DataGridTextColumn Header="Reason" Binding="{Binding BanReason}" Width="*"/>
+                                <DataGridTemplateColumn Header="Actions" Width="100">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Button Content="Unban" Click="BtnUnbanIP_Click" Tag="{Binding IP}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <Button Content="Refresh IP Bans" Width="120" Height="30" Margin="0,5" HorizontalAlignment="Left" Click="BtnRefreshIPBans_Click"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+            
+            <!-- Players Tab -->
+            <TabItem Header="Players">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
-                        <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
                     
-                    <!-- Time Range Selector -->
+                    <!-- Player Search -->
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="10">
-                        <TextBlock Text="Time Range:" Foreground="White" VerticalAlignment="Center" Margin="5"/>
-                        <ComboBox x:Name="CmbTimeRange" Width="100" Height="30" Margin="5" SelectionChanged="CmbTimeRange_SelectionChanged">
-                            <ComboBoxItem Content="1 Min" Tag="1"/>
-                            <ComboBoxItem Content="5 Min" Tag="5"/>
-                            <ComboBoxItem Content="30 Min" Tag="30"/>
-                            <ComboBoxItem Content="1 Hour" Tag="60"/>
-                            <ComboBoxItem Content="24 Hours" Tag="1440"/>
+                        <TextBox x:Name="PlayerSearch" Width="200" Height="30" Margin="5"/>
+                        <Button Content="Search Online" Width="100" Height="30" Margin="5" Click="BtnSearchPlayer_Click"/>
+                        <Button Content="Search Offline" Width="100" Height="30" Margin="5" Click="BtnSearchOfflinePlayer_Click"/>
+                        <Button Content="Refresh" Width="80" Height="30" Margin="5" Click="BtnRefreshPlayers_Click"/>
+                        <Separator Width="20"/>
+                        <ComboBox x:Name="CmbGMAction" Width="150" Height="30" Margin="5">
+                            <ComboBoxItem Content="Kick"/>
+                            <ComboBoxItem Content="Ban"/>
+                            <ComboBoxItem Content="Mute"/>
+                            <ComboBoxItem Content="GM On"/>
+                            <ComboBoxItem Content="GM Off"/>
                         </ComboBox>
-                        <TextBlock Text="Auth:" Foreground="White" VerticalAlignment="Center" Margin="20,5,5,5"/>
-                        <TextBlock x:Name="AuthCurrentMemory" Text="0 MB" Foreground="#00FF00" VerticalAlignment="Center" Margin="5"/>
-                        <TextBlock x:Name="AuthCurrentCpu" Text="0%" Foreground="#00FF00" VerticalAlignment="Center" Margin="5"/>
-                        <TextBlock Text="World:" Foreground="White" VerticalAlignment="Center" Margin="20,5,5,5"/>
-                        <TextBlock x:Name="WorldCurrentMemory" Text="0 MB" Foreground="#00FF00" VerticalAlignment="Center" Margin="5"/>
-                        <TextBlock x:Name="WorldCurrentCpu" Text="0%" Foreground="#00FF00" VerticalAlignment="Center" Margin="5"/>
+                        <Button Content="Execute" Width="80" Height="30" Margin="5" Click="BtnExecuteGM_Click"/>
                     </StackPanel>
                     
-                    <!-- World CPU Graph -->
-                    <Border Grid.Row="1" BorderBrush="#FF555555" BorderThickness="1" Background="#FF1A1A1A" Margin="10">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                            </Grid.RowDefinitions>
-                            <TextBlock Grid.Row="0" Text="World Server CPU (%)" Foreground="White" Margin="10,5"/>
-                            <Canvas x:Name="AuthMemoryCanvas" Grid.Row="1" Margin="10">
-                                <Polyline x:Name="AuthMemoryPolyline" Stroke="#00FF00" StrokeThickness="2" Points=""/>
-                            </Canvas>
-                        </Grid>
-                    </Border>
-                    
-                    <!-- World Memory Graph -->
-                    <Border Grid.Row="2" BorderBrush="#FF555555" BorderThickness="1" Background="#FF1A1A1A" Margin="10">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                            </Grid.RowDefinitions>
-                            <TextBlock Grid.Row="0" Text="World Server Memory (MB)" Foreground="White" Margin="10,5"/>
-                            <Canvas x:Name="WorldMemoryCanvas" Grid.Row="1" Margin="10">
-                                <Polyline x:Name="WorldMemoryPolyline" Stroke="#00FF00" StrokeThickness="2" Points=""/>
-                            </Canvas>
-                        </Grid>
-                    </Border>
+                    <!-- Player List -->
+                    <DataGrid x:Name="PlayerList" Grid.Row="1" AutoGenerateColumns="False" Margin="10"
+                              IsReadOnly="True" SelectionMode="Single" MouseDoubleClick="PlayerList_MouseDoubleClick">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
+                            <DataGridTextColumn Header="Race" Binding="{Binding Race}" Width="80"/>
+                            <DataGridTextColumn Header="Class" Binding="{Binding Class}" Width="80"/>
+                            <DataGridTextColumn Header="Level" Binding="{Binding Level}" Width="60"/>
+                            <DataGridTextColumn Header="Zone" Binding="{Binding Zone}" Width="150"/>
+                            <DataGridTextColumn Header="IP Address" Binding="{Binding IPAddress}" Width="120"/>
+                            <DataGridTemplateColumn Header="Account" Width="100">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Content="Account" Click="BtnPlayerAccount_Click" Tag="{Binding Name}"/>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
                 </Grid>
             </TabItem>
             
-            <!-- Config Tab -->
-            <TabItem Header="Config">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    
-                    <!-- Config File Selection -->
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="10">
-                        <ComboBox x:Name="CmbConfigFile" Width="200" Height="30" Margin="5">
-                            <ComboBoxItem Content="worldserver.conf"/>
-                            <ComboBoxItem Content="authserver.conf"/>
-                        </ComboBox>
-                        <Button Content="Load" Width="80" Height="30" Margin="5" Click="BtnLoadConfig_Click"/>
-                        <Button Content="Save" Width="80" Height="30" Margin="5" Click="BtnSaveConfig_Click"/>
-                        <Button Content="Apply" Width="80" Height="30" Margin="5" Click="BtnApplyConfig_Click"/>
+            <!-- Server Analytics Tab -->
+            <TabItem Header="Server Analytics">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="20">
+                        <TextBlock Text="Server Analytics Dashboard" FontSize="16" FontWeight="Bold" Margin="0,0,0,10"/>
+                        
+                        <!-- Current Stats -->
+                        <Grid Margin="0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            
+                            <Border Grid.Column="0" Background="#FF2A2A2A" Padding="15" Margin="0,0,5,0" CornerRadius="5">
+                                <StackPanel>
+                                    <TextBlock Text="Online Players" FontSize="12" Foreground="#FF888888" Margin="0,0,0,5"/>
+                                    <TextBlock x:Name="TxtOnlinePlayers" Text="0" FontSize="24" FontWeight="Bold" Foreground="White"/>
+                                </StackPanel>
+                            </Border>
+                            
+                            <Border Grid.Column="1" Background="#FF2A2A2A" Padding="15" Margin="0,0,5,0" CornerRadius="5">
+                                <StackPanel>
+                                    <TextBlock Text="CPU Usage" FontSize="12" Foreground="#FF888888" Margin="0,0,0,5"/>
+                                    <TextBlock x:Name="TxtCpuUsage" Text="0%" FontSize="24" FontWeight="Bold" Foreground="White"/>
+                                </StackPanel>
+                            </Border>
+                            
+                            <Border Grid.Column="2" Background="#FF2A2A2A" Padding="15" CornerRadius="5">
+                                <StackPanel>
+                                    <TextBlock Text="Memory Usage" FontSize="12" Foreground="#FF888888" Margin="0,0,0,5"/>
+                                    <TextBlock x:Name="TxtMemoryUsage" Text="0 MB" FontSize="24" FontWeight="Bold" Foreground="White"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                        
+                        <Separator Margin="0,20,0,20"/>
+                        
+                        <!-- Player Count Over Time -->
+                        <TextBlock Text="Player Count Over Time" FontSize="14" FontWeight="Bold" Margin="0,10,0,5"/>
+                        <DataGrid x:Name="DgPlayerCountHistory" Height="150" Margin="0,5" AutoGenerateColumns="False" IsReadOnly="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Timestamp" Binding="{Binding Timestamp}" Width="150"/>
+                                <DataGridTextColumn Header="Player Count" Binding="{Binding PlayerCount}" Width="100"/>
+                                <DataGridTextColumn Header="Peak This Hour" Binding="{Binding PeakThisHour}" Width="120"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        
+                        <Separator Margin="0,20,0,20"/>
+                        
+                        <!-- Peak Hours -->
+                        <TextBlock Text="Peak Hours (Last 24 Hours)" FontSize="14" FontWeight="Bold" Margin="0,10,0,5"/>
+                        <DataGrid x:Name="DgPeakHours" Height="150" Margin="0,5" AutoGenerateColumns="False" IsReadOnly="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Hour" Binding="{Binding Hour}" Width="100"/>
+                                <DataGridTextColumn Header="Average Players" Binding="{Binding AveragePlayers}" Width="120"/>
+                                <DataGridTextColumn Header="Peak Players" Binding="{Binding PeakPlayers}" Width="100"/>
+                                <DataGridTextColumn Header="Peak Time" Binding="{Binding PeakTime}" Width="150"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        
+                        <Separator Margin="0,20,0,20"/>
+                        
+                        <!-- Performance Metrics -->
+                        <TextBlock Text="Performance Metrics" FontSize="14" FontWeight="Bold" Margin="0,10,0,5"/>
+                        <Grid Margin="0,5">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            
+                            <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                                <TextBlock Text="CPU History" Foreground="White" Margin="0,0,0,5"/>
+                                <DataGrid x:Name="DgCpuHistory" Height="150" AutoGenerateColumns="False" IsReadOnly="True">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="120"/>
+                                        <DataGridTextColumn Header="CPU %" Binding="{Binding CpuUsage}" Width="80"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </StackPanel>
+                            
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="Memory History" Foreground="White" Margin="0,0,0,5"/>
+                                <DataGrid x:Name="DgMemoryHistory" Height="150" AutoGenerateColumns="False" IsReadOnly="True">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="120"/>
+                                        <DataGridTextColumn Header="Memory MB" Binding="{Binding MemoryUsage}" Width="100"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </StackPanel>
+                        </Grid>
+                        
+                        <Button Content="Refresh Analytics" Width="150" Height="30" Margin="0,20,0,0" HorizontalAlignment="Left" Click="BtnRefreshAnalytics_Click"/>
                     </StackPanel>
-                    
-                    <!-- Config Editor -->
-                    <RichTextBox x:Name="ConfigEditor" Grid.Row="1" FontFamily="Consolas" FontSize="12"
-                                 VerticalScrollBarVisibility="Auto" Margin="10"/>
-                    
-                    <!-- Config Search -->
-                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="10">
-                        <TextBox x:Name="ConfigSearch" Width="300" Height="30" Margin="5"/>
-                        <Button Content="Find" Width="80" Height="30" Margin="5" Click="BtnFindConfig_Click"/>
+                </ScrollViewer>
+            </TabItem>
+            
+            <!-- Communication Tab -->
+            <TabItem Header="Communication">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="20">
+                        <TextBlock Text="Communication Center" FontSize="16" FontWeight="Bold" Margin="0,0,0,10"/>
+                        
+                        <!-- In-Game Announcement Templates -->
+                        <TextBlock Text="In-Game Announcement Templates" FontSize="14" FontWeight="Bold" Margin="0,10,0,5"/>
+                        <Grid Margin="0,5">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="TxtAnnouncementMessage" Grid.Column="0" Height="60" TextWrapping="Wrap" AcceptsReturn="True" Margin="0,0,5,0" Text="Enter announcement message..."/>
+                            <StackPanel Grid.Column="1" Orientation="Vertical">
+                                <Button Content="Send Announcement" Width="150" Height="30" Margin="0,0,0,5" Click="BtnSendAnnouncement_Click"/>
+                                <ComboBox x:Name="CmbAnnouncementType" Width="150" Height="30">
+                                    <ComboBoxItem Content="Global (all)" Tag="announce"/>
+                                    <ComboBoxItem Content="GM (staff only)" Tag="gmannounce"/>
+                                    <ComboBoxItem Content="Notification" Tag="notify"/>
+                                </ComboBox>
+                            </StackPanel>
+                        </Grid>
+                        
+                        <!-- Quick Templates -->
+                        <TextBlock Text="Quick Templates" FontSize="12" Foreground="#FF888888" Margin="0,10,0,5"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,5">
+                            <Button Content="Server Restarting" Width="120" Height="25" Margin="0,0,5,0" Click="BtnTemplateRestart_Click"/>
+                            <Button Content="Maintenance Mode" Width="120" Height="25" Margin="0,0,5,0" Click="BtnTemplateMaintenance_Click"/>
+                            <Button Content="Welcome" Width="120" Height="25" Click="BtnTemplateWelcome_Click"/>
+                        </StackPanel>
+                        
+                        <Separator Margin="0,20,0,20"/>
+                        
+                        <!-- Broadcast Message History -->
+                        <TextBlock Text="Broadcast Message History" FontSize="14" FontWeight="Bold" Margin="0,10,0,5"/>
+                        <DataGrid x:Name="DgBroadcastHistory" Height="200" Margin="0,5" AutoGenerateColumns="False" IsReadOnly="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Time" Binding="{Binding Time, StringFormat=HH:mm:ss}" Width="80"/>
+                                <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="100"/>
+                                <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <Button Content="Clear History" Width="100" Height="30" Margin="0,5,0,0" HorizontalAlignment="Left" Click="BtnClearBroadcastHistory_Click"/>
                     </StackPanel>
-                </Grid>
+                </ScrollViewer>
             </TabItem>
             
             <!-- Settings Tab -->
@@ -397,6 +666,10 @@
                         <TextBlock Text="Character Database:" Margin="0,10,0,5"/>
                         <TextBox x:Name="TxtCharacterDatabase" Height="30" Margin="0,5"/>
                         
+                        <!-- Auth Database -->
+                        <TextBlock Text="Auth Database:" Margin="0,10,0,5"/>
+                        <TextBox x:Name="TxtAuthDatabase" Height="30" Margin="0,5"/>
+                        
                         <!-- MySQL User -->
                         <TextBlock Text="MySQL User:" Margin="0,10,0,5"/>
                         <TextBox x:Name="TxtMySqlUser" Height="30" Margin="0,5"/>
@@ -430,6 +703,8 @@
                         <!-- Crash Log Analysis -->
                         <CheckBox x:Name="ChkEnableCrashLogAnalysis" Content="Enable Crash Log Analysis" Foreground="White" Margin="0,5"/>
                         <TextBlock Text="Automatically analyze crash logs when servers crash" FontSize="11" Foreground="#AAAAAA" Margin="20,0,0,10"/>
+                        <CheckBox x:Name="ChkKillExistingServers" Content="Kill Existing Servers on Startup" Foreground="White" Margin="0,5"/>
+                        <TextBlock Text="Automatically kill any running authserver/worldserver processes on startup" FontSize="11" Foreground="#AAAAAA" Margin="20,0,0,10"/>
                         
                         <Separator Margin="0,20,0,20"/>
                         
@@ -469,12 +744,29 @@
                         </Grid>
                         <TextBlock Text="Where to store database backup files" FontSize="11" Foreground="#AAAAAA" Margin="0,0,0,10"/>
                         
+                        <!-- MySQL Dump Path -->
+                        <TextBlock Text="MySQL Dump Path:" Margin="0,5"/>
+                        <TextBox x:Name="TxtMySqlDumpPath" Height="30" Margin="0,5" Text="mysqldump"/>
+                        <TextBlock Text="Full path to mysqldump.exe (e.g., C:\Program Files\MySQL\bin\mysqldump.exe)" FontSize="11" Foreground="#AAAAAA" Margin="0,0,0,10"/>
+                        
+                        <!-- MySQL Path -->
+                        <TextBlock Text="MySQL Path:" Margin="0,5"/>
+                        <TextBox x:Name="TxtMySqlPath" Height="30" Margin="0,5" Text="mysql"/>
+                        <TextBlock Text="Full path to mysql.exe (e.g., C:\Program Files\MySQL\bin\mysql.exe)" FontSize="11" Foreground="#AAAAAA" Margin="0,0,0,10"/>
+                        
                         <!-- Manual Backup/Restore -->
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,5">
                             <Button Content="Backup Now" Width="120" Height="35" Margin="5" Click="BtnBackupNow_Click"/>
                             <Button Content="Restore Backup" Width="120" Height="35" Margin="5" Click="BtnRestoreBackup_Click"/>
                         </StackPanel>
                         <TextBlock x:Name="TxtBackupStatus" Text="" FontSize="11" Foreground="#AAAAAA" Margin="0,5,0,10"/>
+                        
+                        <Separator Margin="0,20,0,20"/>
+                        
+                        <TextBlock Text="Item Cache" FontSize="16" FontWeight="Bold" Margin="0,0,0,10"/>
+                        <TextBlock Text="Refresh item data from acore_world database" FontSize="11" Foreground="#AAAAAA" Margin="0,0,0,10"/>
+                        <Button Content="Refresh Item Cache" Width="150" Height="35" Margin="0,5" Click="BtnRefreshItemCache_Click"/>
+                        <TextBlock x:Name="TxtItemCacheStatus" Text="" FontSize="11" Foreground="#AAAAAA" Margin="0,5,0,10"/>
                         
                         <Separator Margin="0,20,0,20"/>
                         
@@ -486,6 +778,37 @@
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
+            </TabItem>
+            <!-- Config Tab -->
+            <TabItem Header="Config">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    
+                    <!-- Config File Selection -->
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="10">
+                        <ComboBox x:Name="CmbConfigFile" Width="200" Height="30" Margin="5">
+                            <ComboBoxItem Content="worldserver.conf"/>
+                            <ComboBoxItem Content="authserver.conf"/>
+                        </ComboBox>
+                        <Button Content="Load" Width="80" Height="30" Margin="5" Click="BtnLoadConfig_Click"/>
+                        <Button Content="Save" Width="80" Height="30" Margin="5" Click="BtnSaveConfig_Click"/>
+                        <Button Content="Apply" Width="80" Height="30" Margin="5" Click="BtnApplyConfig_Click"/>
+                    </StackPanel>
+                    
+                    <!-- Config Editor -->
+                    <RichTextBox x:Name="ConfigEditor" Grid.Row="1" FontFamily="Consolas" FontSize="12"
+                                 VerticalScrollBarVisibility="Auto" Margin="10"/>
+                    
+                    <!-- Config Search -->
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="10">
+                        <TextBox x:Name="ConfigSearch" Width="300" Height="30" Margin="5"/>
+                        <Button Content="Find" Width="80" Height="30" Margin="5" Click="BtnFindConfig_Click"/>
+                    </StackPanel>
+                </Grid>
             </TabItem>
         </TabControl>
     </Grid>

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
@@ -18,18 +19,16 @@ namespace AzerothCoreLauncher
     {
         private Process? _authProcess;
         private Process? _worldProcess;
-        private DatabaseManager? _dbManager;
-        private ConfigManager? _configManager;
-        private AppSettings _settings;
         
-        private DispatcherTimer _memoryTimer;
-        private DispatcherTimer _uptimeTimer;
-        private DispatcherTimer _restartTimer;
-        private DispatcherTimer _healthCheckTimer;
+        private ConfigManager? _configManager;
+        private AppSettings _settings = new AppSettings();
+        private DatabaseManager? _dbManager;
+        private ItemCache? _itemCache;
+        
+        private DispatcherTimer? _restartTimer;
         
         private DateTime _authStartTime;
         private DateTime _worldStartTime;
-        private bool _restartScheduled;
         private System.IO.FileSystemWatcher? _authLogWatcher;
         private long _authLogLastPosition;
         private System.IO.FileSystemWatcher? _worldLogWatcher;
@@ -38,8 +37,15 @@ namespace AzerothCoreLauncher
         private bool _worldWasRunning;
         private int _authCrashCount;
         private int _worldCrashCount;
-        private System.Collections.Generic.List<HealthDataPoint> _healthDataHistory;
-        private int _selectedTimeRangeMinutes;
+        
+        // Analytics storage
+        private System.Collections.Generic.List<PlayerCountHistory> _playerCountHistory = new();
+        private System.Collections.Generic.List<PeakHour> _peakHours = new();
+        private System.Collections.Generic.List<PerformanceMetric> _performanceMetrics = new();
+        
+        // Communication storage
+        private System.Collections.Generic.List<BroadcastMessage> _broadcastHistory = new();
+        private DispatcherTimer? _analyticsRefreshTimer;
         
         public MainWindow()
         {
@@ -52,9 +58,6 @@ namespace AzerothCoreLauncher
                 
                 PlayerList.ItemsSource = new ObservableCollection<PlayerInfo>();
                 EventList.ItemsSource = new ObservableCollection<ScheduledEvent>();
-                
-                _healthDataHistory = new System.Collections.Generic.List<HealthDataPoint>();
-                _selectedTimeRangeMinutes = 5;
                 
                 LogDebug("Collections initialized");
                 
@@ -73,12 +76,17 @@ namespace AzerothCoreLauncher
                 InitializeManagers();
                 LogDebug("Managers initialized");
                 
+                InitializeItemCache();
+                LogDebug("Item cache initialized");
+                
                 InitializeTimers();
                 LogDebug("Timers initialized");
                 
-                // Select default time range after initialization is complete
-                CmbTimeRange.SelectedIndex = 1; // Select "5 Min"
-                LogDebug("Default time range selected");
+                // Kill existing server processes if setting is enabled
+                if (_settings.KillExistingServersOnStartup)
+                {
+                    KillExistingServers();
+                }
                 
                 LogDebug("MainWindow constructor completed successfully");
             }
@@ -91,33 +99,75 @@ namespace AzerothCoreLauncher
         
         private void InitializeTimers()
         {
-            _memoryTimer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromSeconds(2)
-            };
-            _memoryTimer.Tick += UpdateMemoryUsage;
-            _memoryTimer.Start();
-            
-            _uptimeTimer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromSeconds(1)
-            };
-            _uptimeTimer.Tick += UpdateUptime;
-            _uptimeTimer.Start();
-            
-            _restartTimer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromSeconds(1)
-            };
+            _restartTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _restartTimer.Tick += RestartTimer_Tick;
             
-            _healthCheckTimer = new DispatcherTimer
+            // Memory update timer
+            var memoryTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            memoryTimer.Tick += UpdateMemoryUsage;
+            memoryTimer.Start();
+            
+            // Analytics refresh timer
+            _analyticsRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+            _analyticsRefreshTimer.Tick += (s, e) => BtnRefreshAnalytics_Click(s!, new RoutedEventArgs());
+            _analyticsRefreshTimer.Start();
+        }
+        
+        private void InitializeItemCache()
+        {
+            var cachePath = System.IO.Path.Combine(
+                System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "",
+                "item_template.csv"
+            );
+            
+            _itemCache = new ItemCache(cachePath);
+            
+            AppendToConsole($"Item cache path: {cachePath}", "SYSTEM");
+            
+            if (!_itemCache.Load())
             {
-                Interval = TimeSpan.FromSeconds(_settings.HealthCheckIntervalSeconds)
-            };
-            _healthCheckTimer.Tick += HealthCheck_Tick;
-            if (_settings.EnableHealthMonitoring)
-                _healthCheckTimer.Start();
+                AppendToConsole("Item cache not found. Please refresh item cache from Settings.", "SYSTEM", true);
+            }
+            else
+            {
+                AppendToConsole($"Item cache loaded: {_itemCache.Count} items", "SYSTEM");
+            }
+        }
+        
+        private void KillExistingServers()
+        {
+            try
+            {
+                var processesToKill = new List<string> { "authserver", "worldserver" };
+                var killedProcesses = new List<string>();
+                
+                foreach (var processName in processesToKill)
+                {
+                    try
+                    {
+                        var processes = System.Diagnostics.Process.GetProcessesByName(processName);
+                        foreach (var process in processes)
+                        {
+                            process.Kill();
+                            process.WaitForExit(5000); // Wait up to 5 seconds for process to terminate
+                            killedProcesses.Add(processName);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LogDebug($"Failed to kill {processName}: {ex.Message}");
+                    }
+                }
+                
+                if (killedProcesses.Count > 0)
+                {
+                    AppendToConsole($"Killed existing server processes: {string.Join(", ", killedProcesses)}", "SYSTEM");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogDebug($"Error killing existing servers: {ex.Message}");
+            }
         }
         
         private void CheckAdminPrivileges()
@@ -227,6 +277,111 @@ namespace AzerothCoreLauncher
             }
         }
         
+        private void CheckEvents_Tick(object? sender, EventArgs e)
+        {
+            var currentTime = DateTime.Now.TimeOfDay;
+            var today = DateTime.Today;
+            var currentDayOfWeek = DateTime.Now.DayOfWeek;
+            
+            foreach (var evt in _settings.ScheduledEvents)
+            {
+                if (!evt.IsEnabled)
+                    continue;
+                
+                // Check if event should execute based on recurrence pattern
+                bool shouldExecuteToday = false;
+                
+                if (!evt.IsRecurring)
+                {
+                    // One-time event: check if it's the right day and time
+                    shouldExecuteToday = evt.NextExecution.HasValue && evt.NextExecution.Value.Date == today;
+                }
+                else
+                {
+                    // Recurring events
+                    switch (evt.RecurrencePattern)
+                    {
+                        case "Daily":
+                            shouldExecuteToday = true;
+                            break;
+                        case "Weekly":
+                            shouldExecuteToday = evt.RecurrenceDays.Contains(currentDayOfWeek);
+                            break;
+                        case "Monthly":
+                            shouldExecuteToday = evt.DayOfMonth.HasValue && DateTime.Now.Day == evt.DayOfMonth.Value;
+                            break;
+                        case "Custom":
+                            // Execute every X days from last execution
+                            if (evt.LastExecuted.HasValue)
+                            {
+                                var daysSinceLast = (today - evt.LastExecuted.Value.Date).Days;
+                                shouldExecuteToday = daysSinceLast >= evt.RecurrenceInterval;
+                            }
+                            else
+                            {
+                                shouldExecuteToday = true;
+                            }
+                            break;
+                    }
+                }
+                
+                // Check if already executed today (for recurring events)
+                if (shouldExecuteToday && evt.IsRecurring && evt.LastExecuted.HasValue && evt.LastExecuted.Value.Date == today)
+                    shouldExecuteToday = false;
+                
+                // Check if it's the right time
+                if (shouldExecuteToday && Math.Abs((currentTime - evt.ScheduledTime).TotalSeconds) < 1)
+                {
+                    // Check conditions if any
+                    if (evt.HasConditions && !CheckEventConditions(evt))
+                    {
+                        AppendToConsole($"Event '{evt.Name}' skipped: conditions not met", "SYSTEM");
+                        continue;
+                    }
+                    
+                    ExecuteEvent(evt);
+                }
+            }
+        }
+        
+        private bool CheckEventConditions(ScheduledEvent evt)
+        {
+            // Check player count conditions
+            if (evt.MinPlayerCount.HasValue || evt.MaxPlayerCount.HasValue)
+            {
+                try
+                {
+                    var players = _dbManager?.GetOnlinePlayers();
+                    if (players == null) return false;
+                    int playerCount = players.Count;
+                    
+                    if (evt.MinPlayerCount.HasValue && playerCount < evt.MinPlayerCount.Value)
+                        return false;
+                    
+                    if (evt.MaxPlayerCount.HasValue && playerCount > evt.MaxPlayerCount.Value)
+                        return false;
+                }
+                catch
+                {
+                    return false; // Skip event if we can't check player count
+                }
+            }
+            
+            // Check time window conditions
+            if (evt.StartTimeWindow.HasValue || evt.EndTimeWindow.HasValue)
+            {
+                var currentTime = DateTime.Now.TimeOfDay;
+                
+                if (evt.StartTimeWindow.HasValue && currentTime < evt.StartTimeWindow.Value)
+                    return false;
+                
+                if (evt.EndTimeWindow.HasValue && currentTime > evt.EndTimeWindow.Value)
+                    return false;
+            }
+            
+            return true;
+        }
+        
         private void ExecuteEvent(ScheduledEvent evt)
         {
             Dispatcher.Invoke(() =>
@@ -242,9 +397,9 @@ namespace AzerothCoreLauncher
                         }
                         else if (evt.Target == "Auth")
                         {
-                            BtnStopAuth_Click(null, new RoutedEventArgs());
+                            BtnStopAuth_Click(null!, new RoutedEventArgs());
                             System.Threading.Thread.Sleep(2000);
-                            BtnStartAuth_Click(null, new RoutedEventArgs());
+                            BtnStartAuth_Click(null!, new RoutedEventArgs());
                         }
                         break;
                         
@@ -284,104 +439,27 @@ namespace AzerothCoreLauncher
                     // Calculate next execution for recurring events
                     evt.NextExecution = DateTime.Today.AddDays(1).Add(evt.ScheduledTime);
                 }
+                
+                // Handle event chaining
+                if (evt.ChainedEventIds.Count > 0 && evt.ChainDelaySeconds > 0)
+                {
+                    var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(evt.ChainDelaySeconds) };
+                    timer.Tick += (s, args) =>
+                    {
+                        timer.Stop();
+                        foreach (var chainedEventId in evt.ChainedEventIds)
+                        {
+                            var chainedEvent = _settings.ScheduledEvents.FirstOrDefault(e => e.Id == chainedEventId);
+                            if (chainedEvent != null && chainedEvent.IsEnabled)
+                            {
+                                AppendToConsole($"Executing chained event: {chainedEvent.Name}", "SYSTEM");
+                                ExecuteEvent(chainedEvent);
+                            }
+                        }
+                    };
+                    timer.Start();
+                }
             });
-        }
-        
-        private void HealthCheck_Tick(object? sender, EventArgs e)
-        {
-            if (!_settings.EnableHealthMonitoring)
-                return;
-            
-            try
-            {
-                double authMemoryMB = 0;
-                double authCpuPercent = 0;
-                double worldMemoryMB = 0;
-                double worldCpuPercent = 0;
-                
-                // Check AuthServer memory usage
-                if (_authProcess != null && !_authProcess.HasExited)
-                {
-                    _authProcess.Refresh();
-                    authMemoryMB = _authProcess.WorkingSet64 / (1024 * 1024);
-                    
-                    try
-                    {
-                        authCpuPercent = _authProcess.TotalProcessorTime.TotalMilliseconds / Environment.ProcessorCount;
-                    }
-                    catch
-                    {
-                        authCpuPercent = 0;
-                    }
-                    
-                    if (authMemoryMB > _settings.MemoryAlertThresholdMB)
-                    {
-                        Dispatcher.Invoke(() =>
-                        {
-                            AppendToConsole($"[ALERT] AuthServer memory usage high: {authMemoryMB} MB (threshold: {_settings.MemoryAlertThresholdMB} MB)", "SYSTEM", true);
-                            UpdateStatusLight(AuthStatusLight, "error");
-                            UpdateStatusLight(AuthStatusLightLarge, "error");
-                        });
-                    }
-                }
-                
-                // Check WorldServer memory usage
-                if (_worldProcess != null && !_worldProcess.HasExited)
-                {
-                    _worldProcess.Refresh();
-                    worldMemoryMB = _worldProcess.WorkingSet64 / (1024 * 1024);
-                    
-                    try
-                    {
-                        worldCpuPercent = _worldProcess.TotalProcessorTime.TotalMilliseconds / Environment.ProcessorCount;
-                    }
-                    catch
-                    {
-                        worldCpuPercent = 0;
-                    }
-                    
-                    if (worldMemoryMB > _settings.MemoryAlertThresholdMB)
-                    {
-                        Dispatcher.Invoke(() =>
-                        {
-                            AppendToConsole($"[ALERT] WorldServer memory usage high: {worldMemoryMB} MB (threshold: {_settings.MemoryAlertThresholdMB} MB)", "SYSTEM", true);
-                            UpdateStatusLight(WorldStatusLight, "error");
-                            UpdateStatusLight(WorldStatusLightLarge, "error");
-                        });
-                    }
-                }
-                
-                // Collect health data point
-                var dataPoint = new HealthDataPoint
-                {
-                    Timestamp = DateTime.Now,
-                    AuthMemoryMB = authMemoryMB,
-                    AuthCpuPercent = authCpuPercent,
-                    WorldMemoryMB = worldMemoryMB,
-                    WorldCpuPercent = worldCpuPercent
-                };
-                
-                _healthDataHistory.Add(dataPoint);
-                
-                // Keep only last 24 hours of data
-                var cutoffTime = DateTime.Now.AddHours(-24);
-                _healthDataHistory.RemoveAll(dp => dp.Timestamp < cutoffTime);
-                
-                // Update UI and graphs
-                Dispatcher.Invoke(() =>
-                {
-                    AuthCurrentMemory.Text = $"{authMemoryMB:F0} MB";
-                    AuthCurrentCpu.Text = $"{authCpuPercent:F1}%";
-                    WorldCurrentMemory.Text = $"{worldMemoryMB:F0} MB";
-                    WorldCurrentCpu.Text = $"{worldCpuPercent:F1}%";
-                    
-                    UpdateHealthGraphs();
-                });
-            }
-            catch (Exception ex)
-            {
-                Dispatcher.Invoke(() => AppendToConsole($"Health check error: {ex.Message}", "SYSTEM", true));
-            }
         }
         
         private void ExecuteScheduledRestart()
@@ -389,11 +467,10 @@ namespace AzerothCoreLauncher
             Dispatcher.Invoke(() =>
             {
                 PerformBackupBeforeRestart();
-                BtnStopWorld_Click(null, new RoutedEventArgs());
+                BtnStopWorld_Click(null!, new RoutedEventArgs());
                 System.Threading.Thread.Sleep(2000);
-                BtnStartWorld_Click(null, new RoutedEventArgs());
+                BtnStartWorld_Click(null!, new RoutedEventArgs());
                 
-                _restartScheduled = false;
                 BtnCancelRestart.IsEnabled = false;
                 BtnScheduleRestart.IsEnabled = true;
             });
@@ -406,7 +483,8 @@ namespace AzerothCoreLauncher
                 _settings.MySqlPort,
                 _settings.CharacterDatabase,
                 _settings.MySqlUser,
-                _settings.MySqlPassword
+                _settings.MySqlPassword,
+                _settings.AuthDatabase
             );
             
             _configManager = new ConfigManager(_settings.GetWorldServerConfigPath());
@@ -418,6 +496,7 @@ namespace AzerothCoreLauncher
             TxtMySqlHost.Text = _settings.MySqlHost;
             TxtMySqlPort.Text = _settings.MySqlPort;
             TxtCharacterDatabase.Text = _settings.CharacterDatabase;
+            TxtAuthDatabase.Text = _settings.AuthDatabase;
             TxtMySqlUser.Text = _settings.MySqlUser;
             TxtMySqlPassword.Password = _settings.MySqlPassword;
             TxtConfigDirectory.Text = _settings.ConfigDirectory;
@@ -428,6 +507,7 @@ namespace AzerothCoreLauncher
             TxtMaxAutoRestarts.Text = _settings.MaxAutoRestarts.ToString();
             TxtAutoRestartDelay.Text = _settings.AutoRestartDelaySeconds.ToString();
             ChkEnableCrashLogAnalysis.IsChecked = _settings.EnableCrashLogAnalysis;
+            ChkKillExistingServers.IsChecked = _settings.KillExistingServersOnStartup;
             
             // Load health monitoring settings
             ChkEnableHealthMonitoring.IsChecked = _settings.EnableHealthMonitoring;
@@ -437,6 +517,8 @@ namespace AzerothCoreLauncher
             // Load database backup settings
             ChkBackupBeforeRestart.IsChecked = _settings.BackupDatabaseBeforeRestart;
             TxtBackupDirectory.Text = _settings.BackupDirectory;
+            TxtMySqlDumpPath.Text = _settings.MySqlDumpPath;
+            TxtMySqlPath.Text = _settings.MySqlPath;
         }
         
         private void SaveSettingsFromUI()
@@ -446,6 +528,7 @@ namespace AzerothCoreLauncher
             _settings.MySqlHost = TxtMySqlHost.Text;
             _settings.MySqlPort = TxtMySqlPort.Text;
             _settings.CharacterDatabase = TxtCharacterDatabase.Text;
+            _settings.AuthDatabase = TxtAuthDatabase.Text;
             _settings.MySqlUser = TxtMySqlUser.Text;
             _settings.MySqlPassword = TxtMySqlPassword.Password;
             
@@ -459,6 +542,7 @@ namespace AzerothCoreLauncher
             if (int.TryParse(TxtAutoRestartDelay.Text, out int restartDelay))
                 _settings.AutoRestartDelaySeconds = restartDelay;
             _settings.EnableCrashLogAnalysis = ChkEnableCrashLogAnalysis.IsChecked ?? false;
+            _settings.KillExistingServersOnStartup = ChkKillExistingServers.IsChecked ?? false;
             
             // Save health monitoring settings
             _settings.EnableHealthMonitoring = ChkEnableHealthMonitoring.IsChecked ?? false;
@@ -470,6 +554,8 @@ namespace AzerothCoreLauncher
             // Save database backup settings
             _settings.BackupDatabaseBeforeRestart = ChkBackupBeforeRestart.IsChecked ?? false;
             _settings.BackupDirectory = TxtBackupDirectory.Text;
+            _settings.MySqlDumpPath = TxtMySqlDumpPath.Text;
+            _settings.MySqlPath = TxtMySqlPath.Text;
         }
         
         private void BtnStartAuth_Click(object sender, RoutedEventArgs e)
@@ -766,7 +852,7 @@ namespace AzerothCoreLauncher
                     {
                         timer.Stop();
                         AppendToConsole("Auto-restarting AuthServer...", "SYSTEM");
-                        BtnStartAuth_Click(null, new RoutedEventArgs());
+                        BtnStartAuth_Click(null!, new RoutedEventArgs());
                     };
                     timer.Start();
                     
@@ -925,7 +1011,7 @@ namespace AzerothCoreLauncher
                     {
                         timer.Stop();
                         AppendToConsole("Auto-restarting WorldServer...", "SYSTEM");
-                        BtnStartWorld_Click(null, new RoutedEventArgs());
+                        BtnStartWorld_Click(null!, new RoutedEventArgs());
                     };
                     timer.Start();
                     
@@ -1123,11 +1209,68 @@ namespace AzerothCoreLauncher
                     observable.Add(player);
                 }
                 
-                AppendToConsole($"Found {players.Count} players", "PLAYERS");
+                AppendToConsole($"Found {players.Count} online players", "SYSTEM");
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"Failed to search players: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void PlayerList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (PlayerList.SelectedItem is PlayerInfo player && _dbManager != null)
+            {
+                try
+                {
+                    // Query database to get character GUID
+                    var query = $"SELECT guid, account FROM characters WHERE name = '{player.Name}'";
+                    var dataTable = _dbManager.ExecuteQuery(query);
+                    
+                    if (dataTable.Rows.Count > 0)
+                    {
+                        var row = dataTable.Rows[0];
+                        int characterGuid = Convert.ToInt32(row["guid"]);
+                        int accountId = Convert.ToInt32(row["account"]);
+                        
+                        var popup = new PlayerPopup(characterGuid, player.Name, accountId, _dbManager!, _itemCache!)
+                        {
+                            Owner = this
+                        };
+                        popup.Show();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Failed to open player popup: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+        }
+        
+        private void BtnSearchOfflinePlayer_Click(object sender, RoutedEventArgs e)
+        {
+            if (_dbManager == null) return;
+            
+            try
+            {
+                var searchTerm = PlayerSearch.Text;
+                var players = string.IsNullOrWhiteSpace(searchTerm) 
+                    ? _dbManager.GetOfflinePlayers() 
+                    : _dbManager.SearchOfflinePlayers(searchTerm);
+                
+                var observable = (ObservableCollection<PlayerInfo>)PlayerList.ItemsSource;
+                observable.Clear();
+                
+                foreach (var player in players)
+                {
+                    observable.Add(player);
+                }
+                
+                AppendToConsole($"Found {players.Count} offline players", "SYSTEM");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to search offline players: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
         
@@ -1147,12 +1290,482 @@ namespace AzerothCoreLauncher
                     observable.Add(player);
                 }
                 
-                AppendToConsole($"Refreshed {players.Count} online players", "PLAYERS");
+                AppendToConsole($"Refreshed {players.Count} online players", "SYSTEM");
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"Failed to refresh players: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+        
+        private void BtnSearchAccount_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string username = AccountSearch.Text.Trim();
+                if (string.IsNullOrEmpty(username))
+                {
+                    MessageBox.Show("Please enter an account name", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                
+                if (_dbManager == null)
+                {
+                    MessageBox.Show("Database manager not initialized", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var account = _dbManager.GetAccountInfo(username);
+                if (account == null)
+                {
+                    MessageBox.Show("Account not found", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                
+                string status = account.Locked ? "LOCKED" : "Active";
+                string lastLogin = account.LastLogin == DateTime.MinValue ? "Never" : account.LastLogin.ToString("yyyy-MM-dd HH:mm:ss");
+                
+                MessageBox.Show($"Account found: {username}", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                AppendToConsole($"Loaded account info for: {username}", "SYSTEM");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to search account: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnCreateAccount_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_dbManager == null)
+                {
+                    MessageBox.Show("Database manager not initialized", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var popup = new CreateAccountPopup(_dbManager, _worldProcess);
+                popup.Owner = this;
+                var result = popup.ShowDialog();
+                
+                if (result == true)
+                {
+                    // Refresh account list
+                    BtnRefreshAccount_Click(sender, e);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to open create account popup: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnRefreshAccount_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_dbManager == null)
+                {
+                    MessageBox.Show("Database manager not initialized", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                // Load all accounts
+                var accounts = _dbManager.GetAllAccounts();
+                DgAccounts.ItemsSource = accounts;
+                
+                MessageBox.Show($"Loaded {accounts.Count} accounts", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                AppendToConsole($"Loaded {accounts.Count} accounts", "SYSTEM");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to load accounts: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnEditAccount_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_dbManager == null)
+                {
+                    MessageBox.Show("Database manager not initialized", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var button = sender as System.Windows.Controls.Button;
+                string username = button?.Tag?.ToString() ?? string.Empty;
+                
+                if (string.IsNullOrEmpty(username))
+                {
+                    MessageBox.Show("Account name not found", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var popup = new AccountEditPopup(_dbManager, username, _worldProcess);
+                popup.Owner = this;
+                popup.ShowDialog();
+                
+                // Refresh account list
+                BtnRefreshAccount_Click(sender, e);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to open account edit popup: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnDeleteAccount_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_dbManager == null)
+                {
+                    MessageBox.Show("Database manager not initialized", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var button = sender as System.Windows.Controls.Button;
+                string username = button?.Tag?.ToString() ?? string.Empty;
+                
+                if (string.IsNullOrEmpty(username))
+                {
+                    MessageBox.Show("Account name not found", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                // Confirm deletion
+                var result = MessageBox.Show(
+                    $"Are you sure you want to delete account '{username}'?\n\nThis will also delete all characters associated with this account. This action cannot be undone.",
+                    "Confirm Delete",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+                
+                if (result == MessageBoxResult.Yes)
+                {
+                    _dbManager.DeleteAccount(username);
+                    MessageBox.Show($"Account '{username}' has been deleted", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                    AppendToConsole($"Account deleted: {username}", "SYSTEM");
+                    
+                    // Refresh account list
+                    BtnRefreshAccount_Click(sender, e);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to delete account: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnRefreshIPBans_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_dbManager == null)
+                {
+                    MessageBox.Show("Database manager not initialized", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var bans = _dbManager.GetAllIPBans();
+                DgIPBans.ItemsSource = bans;
+                
+                AppendToConsole($"Loaded {bans.Count} IP bans", "SYSTEM");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to load IP bans: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnRefreshAccountBans_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_dbManager == null)
+                {
+                    MessageBox.Show("Database manager not initialized", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var bans = _dbManager.GetAllAccountBans();
+                DgAccountBans.ItemsSource = bans;
+                
+                AppendToConsole($"Loaded {bans.Count} account bans", "SYSTEM");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to load account bans: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnEditBannedAccount_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_dbManager == null)
+                {
+                    MessageBox.Show("Database manager not initialized", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var button = sender as System.Windows.Controls.Button;
+                var accountId = button?.Tag;
+                
+                if (accountId == null)
+                {
+                    MessageBox.Show("Account ID not found", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                // Get username from account ID
+                string username = _dbManager.GetUsernameByAccountId((int)accountId);
+                if (string.IsNullOrEmpty(username))
+                {
+                    MessageBox.Show("Account not found", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var popup = new AccountEditPopup(_dbManager, username, _worldProcess);
+                popup.Owner = this;
+                popup.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to open account edit popup: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void AccountManagementTab_Selected(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_dbManager == null) return;
+                
+                // Refresh account bans
+                var accountBans = _dbManager.GetAllAccountBans();
+                DgAccountBans.ItemsSource = accountBans;
+                
+                // Refresh IP bans
+                var ipBans = _dbManager.GetAllIPBans();
+                DgIPBans.ItemsSource = ipBans;
+                
+                AppendToConsole($"Auto-refreshed {accountBans.Count} account bans and {ipBans.Count} IP bans", "SYSTEM");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to auto-refresh: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnRefreshAnalytics_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_dbManager == null)
+                {
+                    MessageBox.Show("Database manager not initialized", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                // Get current online player count
+                var onlinePlayers = _dbManager.GetOnlinePlayers();
+                int playerCount = onlinePlayers.Count;
+                
+                // Update current stats
+                TxtOnlinePlayers.Text = playerCount.ToString();
+                
+                // Get CPU and memory usage
+                if (_worldProcess != null && !_worldProcess.HasExited)
+                {
+                    try
+                    {
+                        _worldProcess.Refresh();
+                        
+                        // Memory usage
+                        var memoryUsage = _worldProcess.WorkingSet64 / (1024 * 1024);
+                        var currentCpuTime = _worldProcess.TotalProcessorTime;
+                        
+                        TxtMemoryUsage.Text = $"{memoryUsage} MB";
+                        
+                        // CPU usage - simplified calculation
+                        try
+                        {
+                            if (_performanceMetrics.Count > 0)
+                            {
+                                var lastMetric = _performanceMetrics.Last();
+                                var timeDelta = (DateTime.Now - lastMetric.Time).TotalSeconds;
+                                if (timeDelta > 0)
+                                {
+                                    var cpuDelta = (currentCpuTime - TimeSpan.FromSeconds(lastMetric.CpuUsage)).TotalSeconds;
+                                    var cpuUsage = (cpuDelta / timeDelta) * 100 / Environment.ProcessorCount;
+                                    cpuUsage = Math.Max(0, Math.Min(100, cpuUsage));
+                                    TxtCpuUsage.Text = $"{cpuUsage:F1}%";
+                                }
+                                else
+                                {
+                                    TxtCpuUsage.Text = "Calculating...";
+                                }
+                            }
+                            else
+                            {
+                                TxtCpuUsage.Text = "Calculating...";
+                            }
+                        }
+                        catch
+                        {
+                            TxtCpuUsage.Text = "N/A";
+                        }
+                        
+                        // Add to performance history
+                        _performanceMetrics.Add(new PerformanceMetric
+                        {
+                            Time = DateTime.Now,
+                            CpuUsage = currentCpuTime.TotalSeconds, // Store raw CPU time for delta calculation
+                            MemoryUsage = memoryUsage
+                        });
+                        
+                        // Keep only last 100 entries
+                        if (_performanceMetrics.Count > 100)
+                            _performanceMetrics.RemoveAt(0);
+                    }
+                    catch (Exception ex)
+                    {
+                        TxtMemoryUsage.Text = "Error";
+                        AppendToConsole($"Error getting process stats: {ex.Message}", "ERROR");
+                    }
+                }
+                else
+                {
+                    TxtCpuUsage.Text = "Server not running";
+                    TxtMemoryUsage.Text = "Server not running";
+                    AppendToConsole("World process not running for analytics", "DEBUG");
+                }
+                
+                // Add to player count history
+                var currentHour = DateTime.Now.Hour;
+                var hourData = _playerCountHistory.Where(h => h.Timestamp.Hour == currentHour);
+                var peakThisHour = hourData.Any() ? hourData.Max(h => h.PlayerCount) : 0;
+                
+                _playerCountHistory.Add(new PlayerCountHistory
+                {
+                    Timestamp = DateTime.Now,
+                    PlayerCount = playerCount,
+                    PeakThisHour = peakThisHour
+                });
+                
+                // Keep only last 24 hours of data
+                _playerCountHistory.RemoveAll(h => h.Timestamp < DateTime.Now.AddHours(-24));
+                
+                // Calculate peak hours for last 24 hours
+                CalculatePeakHours();
+                
+                // Update DataGrids
+                DgPlayerCountHistory.ItemsSource = _playerCountHistory.OrderByDescending(h => h.Timestamp).Take(50).ToList();
+                DgPeakHours.ItemsSource = _peakHours;
+                DgCpuHistory.ItemsSource = _performanceMetrics.OrderByDescending(m => m.Time).Take(50).ToList();
+                DgMemoryHistory.ItemsSource = _performanceMetrics.OrderByDescending(m => m.Time).Take(50).ToList();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to refresh analytics: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void CalculatePeakHours()
+        {
+            _peakHours.Clear();
+            
+            for (int hour = 0; hour < 24; hour++)
+            {
+                var hourData = _playerCountHistory.Where(h => h.Timestamp.Hour == hour);
+                
+                if (hourData.Any())
+                {
+                    var average = hourData.Average(h => h.PlayerCount);
+                    var peak = hourData.Max(h => h.PlayerCount);
+                    var peakTime = hourData.OrderByDescending(h => h.PlayerCount).First().Timestamp;
+                    
+                    _peakHours.Add(new PeakHour
+                    {
+                        Hour = hour,
+                        AveragePlayers = average,
+                        PeakPlayers = peak,
+                        PeakTime = peakTime
+                    });
+                }
+            }
+            
+            _peakHours = _peakHours.OrderByDescending(h => h.PeakPlayers).ToList();
+        }
+        
+        private void BtnSendAnnouncement_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string message = TxtAnnouncementMessage.Text.Trim();
+                if (string.IsNullOrEmpty(message))
+                {
+                    MessageBox.Show("Please enter an announcement message", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                
+                if (_worldProcess == null || _worldProcess.HasExited)
+                {
+                    MessageBox.Show("World server is not running", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                
+                string type = "announce";
+                if (CmbAnnouncementType.SelectedItem is System.Windows.Controls.ComboBoxItem item && item.Tag != null)
+                {
+                    type = item.Tag.ToString() ?? "announce";
+                }
+                
+                string command = $"{type} {message}";
+                _worldProcess.StandardInput.WriteLine(command);
+                
+                // Add to history
+                _broadcastHistory.Add(new BroadcastMessage
+                {
+                    Time = DateTime.Now,
+                    Type = type,
+                    Message = message
+                });
+                
+                // Update history display
+                DgBroadcastHistory.ItemsSource = _broadcastHistory.OrderByDescending(b => b.Time).ToList();
+                
+                // Clear message
+                TxtAnnouncementMessage.Clear();
+                
+                AppendToConsole($"Sent {type}: {message}", "SYSTEM");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to send announcement: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnTemplateRestart_Click(object sender, RoutedEventArgs e)
+        {
+            TxtAnnouncementMessage.Text = "Server will restart in 5 minutes. Please logout to prevent data loss.";
+        }
+        
+        private void BtnTemplateMaintenance_Click(object sender, RoutedEventArgs e)
+        {
+            TxtAnnouncementMessage.Text = "Server is entering maintenance mode. New connections will be disabled.";
+        }
+        
+        private void BtnTemplateWelcome_Click(object sender, RoutedEventArgs e)
+        {
+            TxtAnnouncementMessage.Text = "Welcome to our server! Please follow the rules and enjoy your stay.";
+        }
+        
+        private void BtnClearBroadcastHistory_Click(object sender, RoutedEventArgs e)
+        {
+            _broadcastHistory.Clear();
+            DgBroadcastHistory.ItemsSource = _broadcastHistory.ToList();
         }
         
         private void BtnExecuteGM_Click(object sender, RoutedEventArgs e)
@@ -1174,20 +1787,62 @@ namespace AzerothCoreLauncher
                     _ => ""
                 };
                 
+                if (string.IsNullOrEmpty(command)) return;
+                
                 if (_worldProcess != null && !_worldProcess.HasExited)
                 {
                     _worldProcess.StandardInput.WriteLine(command);
-                    AppendToConsole($"GM command sent: {command}", "GM");
+                    AppendToConsole($"Executed {action} on {selectedPlayer.Name}", "SYSTEM");
                 }
                 else
                 {
-                    MessageBox.Show("WorldServer is not running", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show("WorldServer is not running", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"Failed to execute GM action: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+        
+        private void BtnPlayerAccount_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string characterName = ((Button)sender).Tag?.ToString() ?? string.Empty;
+                if (string.IsNullOrEmpty(characterName))
+                    return;
+                
+                if (_dbManager == null)
+                {
+                    MessageBox.Show("Database manager not initialized", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                // Get account username from character name
+                string username = _dbManager.GetAccountUsernameByCharacterName(characterName);
+                if (string.IsNullOrEmpty(username))
+                {
+                    MessageBox.Show("Could not find account for this character", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                // Show account popup
+                var popup = new AccountPopup(_dbManager, characterName, username, _worldProcess);
+                popup.Owner = this;
+                popup.ShowDialog();
+                
+                AppendToConsole($"Opened account popup for character: {characterName}", "SYSTEM");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to open account popup: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void LoadAccountCharacters(int accountId)
+        {
+            // No longer used - removed from UI
         }
         
         private void BtnLoadConfig_Click(object sender, RoutedEventArgs e)
@@ -1334,7 +1989,7 @@ namespace AzerothCoreLauncher
                     _settings.MySqlPassword
                 );
                 
-                string backupFile = dbManager.BackupDatabase(TxtBackupDirectory.Text);
+                string backupFile = dbManager.BackupDatabase(_settings.BackupDirectory, _settings.MySqlDumpPath);
                 TxtBackupStatus.Text = $"Backup created: {System.IO.Path.GetFileName(backupFile)}";
                 AppendToConsole($"Database backup created: {backupFile}", "SYSTEM");
             }
@@ -1342,6 +1997,84 @@ namespace AzerothCoreLauncher
             {
                 TxtBackupStatus.Text = $"Backup failed: {ex.Message}";
                 MessageBox.Show($"Backup failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnRefreshItemCache_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                TxtItemCacheStatus.Text = "Refreshing item cache...";
+                
+                // Create a new DatabaseManager for acore_world
+                var worldDbManager = new DatabaseManager(
+                    _settings.MySqlHost,
+                    _settings.MySqlPort,
+                    "acore_world",
+                    _settings.MySqlUser,
+                    _settings.MySqlPassword
+                );
+                
+                AppendToConsole($"Connecting to acore_world at {_settings.MySqlHost}:{_settings.MySqlPort}", "SYSTEM");
+                
+                // Test connection with a simple query
+                var testQuery = "SELECT COUNT(*) as count FROM item_template";
+                var testResult = worldDbManager.ExecuteQuery(testQuery);
+                int totalCount = Convert.ToInt32(testResult.Rows[0]["count"]);
+                AppendToConsole($"Total items in acore_world.item_template: {totalCount}", "SYSTEM");
+                
+                var query = @"SELECT entry, name, displayid, Quality, InventoryType, stackable, ItemLevel, RequiredLevel, BuyPrice, SellPrice, armor, holy_res, fire_res, nature_res, frost_res, shadow_res, arcane_res, socketColor_1, socketContent_1, socketColor_2, socketContent_2, socketColor_3, socketContent_3, socketBonus, spellid_1, spellid_2, spellid_3, spellid_4, spellid_5, MaxDurability
+FROM item_template";
+                
+                var dataTable = worldDbManager.ExecuteQuery(query);
+                
+                AppendToConsole($"Query returned {dataTable.Rows.Count} rows from item_template", "SYSTEM");
+                
+                if (dataTable.Rows.Count == 0)
+                {
+                    TxtItemCacheStatus.Text = "Query returned 0 rows - check database connection";
+                    AppendToConsole("ERROR: Query returned 0 rows. Check if acore_world database exists and has item_template table.", "SYSTEM", true);
+                    return;
+                }
+                
+                var cachePath = System.IO.Path.Combine(
+                    System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "",
+                    "item_template.csv"
+                );
+                
+                var lines = new List<string>();
+                lines.Add("entry,name,displayid,Quality,InventoryType,stackable,ItemLevel,RequiredLevel,BuyPrice,SellPrice,armor,holy_res,fire_res,nature_res,frost_res,shadow_res,arcane_res,socketColor_1,socketContent_1,socketColor_2,socketContent_2,socketColor_3,socketContent_3,socketBonus,spellid_1,spellid_2,spellid_3,spellid_4,spellid_5,MaxDurability");
+                
+                foreach (System.Data.DataRow row in dataTable.Rows)
+                {
+                    var line = string.Join(",", dataTable.Columns.Cast<System.Data.DataColumn>().Select(c =>
+                    {
+                        var value = row[c];
+                        if (value == DBNull.Value) return "";
+                        return $"\"{value}\"";
+                    }));
+                    lines.Add(line);
+                }
+                
+                System.IO.File.WriteAllLines(cachePath, lines);
+                AppendToConsole($"Wrote {lines.Count - 1} items to CSV file at {cachePath}", "SYSTEM");
+                
+                if (_itemCache?.Load() == true)
+                {
+                    TxtItemCacheStatus.Text = $"Item cache refreshed: {_itemCache.Count} items";
+                    AppendToConsole($"Item cache refreshed: {_itemCache.Count} items", "SYSTEM");
+                }
+                else
+                {
+                    TxtItemCacheStatus.Text = "Failed to load refreshed cache";
+                    AppendToConsole("Failed to load refreshed item cache", "SYSTEM", true);
+                }
+            }
+            catch (Exception ex)
+            {
+                TxtItemCacheStatus.Text = $"Refresh failed: {ex.Message}";
+                AppendToConsole($"Item cache refresh failed: {ex.Message}", "SYSTEM", true);
+                MessageBox.Show($"Refresh failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
         
@@ -1373,7 +2106,7 @@ namespace AzerothCoreLauncher
                 
                 if (result == MessageBoxResult.Yes)
                 {
-                    dbManager.RestoreDatabase(latestBackup);
+                    dbManager.RestoreDatabase(latestBackup, _settings.MySqlPath);
                     TxtBackupStatus.Text = $"Database restored from: {System.IO.Path.GetFileName(latestBackup)}";
                     AppendToConsole($"Database restored from: {latestBackup}", "SYSTEM");
                 }
@@ -1383,6 +2116,102 @@ namespace AzerothCoreLauncher
                 TxtBackupStatus.Text = $"Restore failed: {ex.Message}";
                 MessageBox.Show($"Restore failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+        
+        // Account Management Event Handlers
+        private void BtnBanIP_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string ip = TxtBanIP.Text.Trim();
+                if (string.IsNullOrEmpty(ip))
+                {
+                    MessageBox.Show("Please enter an IP address", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                
+                var dbManager = new DatabaseManager(
+                    _settings.MySqlHost,
+                    _settings.MySqlPort,
+                    _settings.CharacterDatabase,
+                    _settings.MySqlUser,
+                    _settings.MySqlPassword,
+                    _settings.AuthDatabase
+                );
+                
+                bool isBanned = dbManager.IsIPBanned(ip);
+                
+                if (isBanned)
+                {
+                    dbManager.UnbanIP(ip);
+                    AppendToConsole($"IP unbanned: {ip}", "SYSTEM");
+                    MessageBox.Show($"IP {ip} has been unbanned", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                else
+                {
+                    dbManager.BanIP(ip, "Banned via Launcher", "Launcher");
+                    AppendToConsole($"IP banned: {ip}", "SYSTEM");
+                    MessageBox.Show($"IP {ip} has been banned", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                
+                TxtBanIP.Clear();
+                BtnRefreshIPBans_Click(sender, e);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to ban/unban IP: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnUnbanIP_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string ip = ((Button)sender).Tag?.ToString() ?? string.Empty;
+                if (string.IsNullOrEmpty(ip))
+                    return;
+                
+                var dbManager = new DatabaseManager(
+                    _settings.MySqlHost,
+                    _settings.MySqlPort,
+                    _settings.CharacterDatabase,
+                    _settings.MySqlUser,
+                    _settings.MySqlPassword
+                );
+                
+                dbManager.UnbanIP(ip);
+                AppendToConsole($"IP unbanned: {ip}", "SYSTEM");
+                BtnRefreshIPBans_Click(sender, e);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to unban IP: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnLoadSecurityAccount_Click(object sender, RoutedEventArgs e)
+        {
+            // No longer used - removed from UI
+        }
+        
+        private void BtnChangePassword_Click(object sender, RoutedEventArgs e)
+        {
+            // No longer used - removed from UI
+        }
+        
+        private void BtnLockAccount_Click(object sender, RoutedEventArgs e)
+        {
+            // No longer used - removed from UI
+        }
+        
+        private void BtnUnlockAccount_Click(object sender, RoutedEventArgs e)
+        {
+            // No longer used - removed from UI
+        }
+        
+        private void BtnViewLoginHistory_Click(object sender, RoutedEventArgs e)
+        {
+            // No longer used - removed from UI
         }
         
         private void PerformBackupBeforeRestart()
@@ -1400,7 +2229,7 @@ namespace AzerothCoreLauncher
                     _settings.MySqlPassword
                 );
                 
-                string backupFile = dbManager.BackupDatabase(_settings.BackupDirectory);
+                string backupFile = dbManager.BackupDatabase(_settings.BackupDirectory, _settings.MySqlDumpPath);
                 AppendToConsole($"Database backup created before restart: {backupFile}", "SYSTEM");
             }
             catch (Exception ex)
@@ -1460,8 +2289,6 @@ namespace AzerothCoreLauncher
                 return;
             }
             
-            _restartScheduled = true;
-            
             BtnScheduleRestart.IsEnabled = false;
             BtnCancelRestart.IsEnabled = true;
             
@@ -1469,15 +2296,14 @@ namespace AzerothCoreLauncher
             RestartTargetText.Text = "Target: World Server";
             RestartInfoBorder.Visibility = Visibility.Visible;
             
-            _restartTimer.Start();
+            _restartTimer?.Start();
             
             AppendToConsole($"Scheduled restart at {scheduledTime:hh\\:mm}", "SYSTEM");
         }
         
         private void BtnCancelRestart_Click(object sender, RoutedEventArgs e)
         {
-            _restartTimer.Stop();
-            _restartScheduled = false;
+            _restartTimer?.Stop();
             
             BtnScheduleRestart.IsEnabled = true;
             BtnCancelRestart.IsEnabled = false;
@@ -1496,6 +2322,52 @@ namespace AzerothCoreLauncher
             
             var eventType = ((ComboBoxItem)CmbEventType.SelectedItem)?.Content?.ToString() ?? "Command";
             var eventTarget = ((ComboBoxItem)CmbEventTarget.SelectedItem)?.Content?.ToString() ?? "World";
+            var recurrencePattern = ((ComboBoxItem)CmbRecurrencePattern.SelectedItem)?.Content?.ToString() ?? "Daily";
+            
+            // Build recurrence days list for weekly
+            var recurrenceDays = new List<DayOfWeek>();
+            if (recurrencePattern == "Weekly")
+            {
+                if (ChkMon.IsChecked == true) recurrenceDays.Add(DayOfWeek.Monday);
+                if (ChkTue.IsChecked == true) recurrenceDays.Add(DayOfWeek.Tuesday);
+                if (ChkWed.IsChecked == true) recurrenceDays.Add(DayOfWeek.Wednesday);
+                if (ChkThu.IsChecked == true) recurrenceDays.Add(DayOfWeek.Thursday);
+                if (ChkFri.IsChecked == true) recurrenceDays.Add(DayOfWeek.Friday);
+                if (ChkSat.IsChecked == true) recurrenceDays.Add(DayOfWeek.Saturday);
+                if (ChkSun.IsChecked == true) recurrenceDays.Add(DayOfWeek.Sunday);
+            }
+            
+            // Parse day of month for monthly
+            int? dayOfMonth = null;
+            if (recurrencePattern == "Monthly" && int.TryParse(TxtDayOfMonth.Text, out int dom))
+            {
+                dayOfMonth = dom;
+            }
+            
+            // Parse custom interval
+            int recurrenceInterval = 1;
+            if (recurrencePattern == "Custom" && int.TryParse(TxtRecurrenceInterval.Text, out int interval))
+            {
+                recurrenceInterval = interval;
+            }
+            
+            // Parse chain delay
+            int chainDelay = 0;
+            int.TryParse(TxtChainDelay.Text, out chainDelay);
+            
+            // Parse conditions
+            int? minPlayers = null;
+            int? maxPlayers = null;
+            TimeSpan? startTimeWindow = null;
+            TimeSpan? endTimeWindow = null;
+            
+            if (ChkHasConditions.IsChecked == true)
+            {
+                if (int.TryParse(TxtMinPlayers.Text, out int min)) minPlayers = min;
+                if (int.TryParse(TxtMaxPlayers.Text, out int max)) maxPlayers = max;
+                if (TimeSpan.TryParse(TxtStartTimeWindow.Text, out TimeSpan start)) startTimeWindow = start;
+                if (TimeSpan.TryParse(TxtEndTimeWindow.Text, out TimeSpan end)) endTimeWindow = end;
+            }
             
             var newEvent = new ScheduledEvent
             {
@@ -1504,9 +2376,18 @@ namespace AzerothCoreLauncher
                 Target = eventTarget,
                 Command = TxtEventCommand.Text,
                 ScheduledTime = scheduledTime,
+                IsEnabled = ChkEventEnabled.IsChecked ?? true,
                 IsRecurring = ChkEventRecurring.IsChecked ?? false,
-                RecurrencePattern = ChkEventRecurring.IsChecked ?? false ? "Daily" : "Once",
-                IsEnabled = true
+                RecurrencePattern = recurrencePattern,
+                RecurrenceInterval = recurrenceInterval,
+                RecurrenceDays = recurrenceDays,
+                DayOfMonth = dayOfMonth,
+                ChainDelaySeconds = chainDelay,
+                HasConditions = ChkHasConditions.IsChecked ?? false,
+                MinPlayerCount = minPlayers,
+                MaxPlayerCount = maxPlayers,
+                StartTimeWindow = startTimeWindow,
+                EndTimeWindow = endTimeWindow
             };
             
             var observable = (ObservableCollection<ScheduledEvent>)EventList.ItemsSource;
@@ -1536,6 +2417,48 @@ namespace AzerothCoreLauncher
             _settings.Save();
             AppendToConsole($"Saved {observable.Count} events", "SYSTEM");
             MessageBox.Show("Events saved successfully.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        
+        private void CmbRecurrencePattern_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            var selectedItem = ((ComboBoxItem)CmbRecurrencePattern.SelectedItem)?.Content?.ToString() ?? "Daily";
+            
+            // Check if UI elements are initialized
+            if (WeeklyDaysPanel == null || MonthlyDayPanel == null || LblInterval == null || TxtRecurrenceInterval == null)
+                return;
+            
+            // Hide all panels first
+            WeeklyDaysPanel.Visibility = Visibility.Collapsed;
+            MonthlyDayPanel.Visibility = Visibility.Collapsed;
+            LblInterval.Visibility = Visibility.Collapsed;
+            TxtRecurrenceInterval.Visibility = Visibility.Collapsed;
+            
+            // Show appropriate panel based on selection
+            switch (selectedItem)
+            {
+                case "Weekly":
+                    WeeklyDaysPanel.Visibility = Visibility.Visible;
+                    break;
+                case "Monthly":
+                    MonthlyDayPanel.Visibility = Visibility.Visible;
+                    break;
+                case "Custom":
+                    LblInterval.Visibility = Visibility.Visible;
+                    TxtRecurrenceInterval.Visibility = Visibility.Visible;
+                    break;
+            }
+        }
+        
+        private void ChkHasConditions_Checked(object sender, RoutedEventArgs e)
+        {
+            ConditionsPanel.Visibility = Visibility.Visible;
+            TimeWindowPanel.Visibility = Visibility.Visible;
+        }
+        
+        private void ChkHasConditions_Unchecked(object sender, RoutedEventArgs e)
+        {
+            ConditionsPanel.Visibility = Visibility.Collapsed;
+            TimeWindowPanel.Visibility = Visibility.Collapsed;
         }
         
         private void LoadEvents()
@@ -1604,74 +2527,12 @@ namespace AzerothCoreLauncher
             }
         }
         
-        private void UpdateHealthGraphs()
-        {
-            try
-            {
-                // Filter data based on selected time range
-                var cutoffTime = DateTime.Now.AddMinutes(-_selectedTimeRangeMinutes);
-                var filteredData = _healthDataHistory.Where(dp => dp.Timestamp >= cutoffTime).ToList();
-                
-                if (filteredData.Count == 0)
-                    return;
-                
-                // Render World CPU Graph (first graph, previously Auth Memory)
-                RenderGraph(AuthMemoryCanvas, AuthMemoryPolyline, filteredData.Select(dp => dp.WorldCpuPercent).ToList());
-                
-                // Render World Memory Graph
-                RenderGraph(WorldMemoryCanvas, WorldMemoryPolyline, filteredData.Select(dp => dp.WorldMemoryMB).ToList());
-            }
-            catch (Exception ex)
-            {
-                AppendToConsole($"Error updating health graphs: {ex.Message}", "SYSTEM", true);
-            }
-        }
-        
-        private void RenderGraph(Canvas canvas, Polyline polyline, System.Collections.Generic.List<double> values)
-        {
-            if (values.Count == 0)
-                return;
-            
-            var width = canvas.ActualWidth;
-            var height = canvas.ActualHeight;
-            
-            if (width <= 0 || height <= 0)
-                return;
-            
-            var maxValue = values.Max();
-            if (maxValue == 0)
-                maxValue = 1;
-            
-            var points = new System.Collections.Generic.List<System.Windows.Point>();
-            
-            for (int i = 0; i < values.Count; i++)
-            {
-                var x = (i / (double)(values.Count - 1)) * width;
-                var y = height - (values[i] / maxValue) * height;
-                points.Add(new System.Windows.Point(x, y));
-            }
-            
-            polyline.Points = new System.Windows.Media.PointCollection(points);
-        }
-        
-        private void CmbTimeRange_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (CmbTimeRange.SelectedItem is ComboBoxItem item && item.Tag != null)
-            {
-                if (int.TryParse(item.Tag.ToString(), out int minutes))
-                {
-                    _selectedTimeRangeMinutes = minutes;
-                    UpdateHealthGraphs();
-                }
-            }
-        }
-        
         private void LogDebug(string message)
         {
             try
             {
                 var logPath = System.IO.Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "AzerothCoreLauncher",
                     "debug.log"
                 );
