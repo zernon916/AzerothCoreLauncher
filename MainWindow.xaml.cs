@@ -24,6 +24,7 @@ namespace AzerothCoreLauncher
         private AppSettings _settings = new AppSettings();
         private DatabaseManager? _dbManager;
         private ItemCache? _itemCache;
+        private SkillCache? _skillCache;
         
         private DispatcherTimer? _restartTimer;
         
@@ -79,6 +80,9 @@ namespace AzerothCoreLauncher
                 InitializeItemCache();
                 LogDebug("Item cache initialized");
                 
+                InitializeSkillCache();
+                LogDebug("Skill cache initialized");
+                
                 InitializeTimers();
                 LogDebug("Timers initialized");
                 
@@ -131,6 +135,28 @@ namespace AzerothCoreLauncher
             else
             {
                 AppendToConsole($"Item cache loaded: {_itemCache.Count} items", "SYSTEM");
+            }
+        }
+        
+        private void InitializeSkillCache()
+        {
+            if (_settings == null) return;
+            
+            _skillCache = new SkillCache(
+                _settings.MySqlHost,
+                _settings.MySqlPort,
+                "acore_world",
+                _settings.MySqlUser,
+                _settings.MySqlPassword
+            );
+            
+            if (!_skillCache.Load())
+            {
+                AppendToConsole("Failed to load skill cache from database.", "SYSTEM", true);
+            }
+            else
+            {
+                AppendToConsole($"Skill cache loaded: {_skillCache.Count} skills", "SYSTEM");
             }
         }
         
@@ -1233,7 +1259,7 @@ namespace AzerothCoreLauncher
                         int characterGuid = Convert.ToInt32(row["guid"]);
                         int accountId = Convert.ToInt32(row["account"]);
                         
-                        var popup = new PlayerPopup(characterGuid, player.Name, accountId, _dbManager!, _itemCache!)
+                        var popup = new PlayerPopup(characterGuid, player.Name, accountId, _dbManager!, _itemCache!, _skillCache!)
                         {
                             Owner = this
                         };
@@ -1455,6 +1481,342 @@ namespace AzerothCoreLauncher
             {
                 MessageBox.Show($"Failed to delete account: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+        
+        private void BtnToggleGM_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_dbManager == null)
+                {
+                    MessageBox.Show("Database manager not initialized", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var toggle = sender as System.Windows.Controls.Primitives.ToggleButton;
+                string username = toggle?.Tag?.ToString() ?? string.Empty;
+                
+                if (string.IsNullOrEmpty(username))
+                {
+                    MessageBox.Show("Account name not found", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                bool isGM = toggle.IsChecked ?? false;
+                int newGMLevel = isGM ? 1 : 0;
+                
+                // Update GM level in database
+                _dbManager.SetGMLevel(username, newGMLevel);
+                
+                MessageBox.Show($"GM status updated for '{username}'", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                BtnRefreshAccount_Click(sender, e);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to update GM status: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        // Economy Tab Event Handlers
+        
+        private void BtnRefreshAuctions_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_dbManager == null)
+                {
+                    MessageBox.Show("Database manager not initialized", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var auctions = _dbManager.GetAllAuctions();
+                DgAuctions.ItemsSource = auctions;
+                
+                AppendToConsole($"Loaded {auctions.Count} auctions", "SYSTEM");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to load auctions: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnSearchAuctions_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_dbManager == null)
+                {
+                    MessageBox.Show("Database manager not initialized", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var allAuctions = _dbManager.GetAllAuctions();
+                string searchTerm = AuctionSearch.Text.ToLower();
+                
+                if (!string.IsNullOrEmpty(searchTerm))
+                {
+                    var filtered = allAuctions.Where(a => 
+                        a.ItemName.ToLower().Contains(searchTerm) || 
+                        a.Seller.ToLower().Contains(searchTerm)).ToList();
+                    DgAuctions.ItemsSource = filtered;
+                    AppendToConsole($"Found {filtered.Count} auctions matching '{searchTerm}'", "SYSTEM");
+                }
+                else
+                {
+                    DgAuctions.ItemsSource = allAuctions;
+                    AppendToConsole($"Loaded {allAuctions.Count} auctions", "SYSTEM");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to search auctions: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnRefreshMail_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_dbManager == null)
+                {
+                    MessageBox.Show("Database manager not initialized", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var mails = _dbManager.GetAllMail();
+                DgMail.ItemsSource = mails;
+                
+                AppendToConsole($"Loaded {mails.Count} mail items", "SYSTEM");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to load mail: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnSearchMail_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_dbManager == null)
+                {
+                    MessageBox.Show("Database manager not initialized", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var allMail = _dbManager.GetAllMail();
+                string searchTerm = MailSearch.Text.ToLower();
+                
+                if (!string.IsNullOrEmpty(searchTerm))
+                {
+                    var filtered = allMail.Where(m => 
+                        m.Sender.ToLower().Contains(searchTerm) || 
+                        m.Receiver.ToLower().Contains(searchTerm) ||
+                        m.Subject.ToLower().Contains(searchTerm)).ToList();
+                    DgMail.ItemsSource = filtered;
+                    AppendToConsole($"Found {filtered.Count} mail items matching '{searchTerm}'", "SYSTEM");
+                }
+                else
+                {
+                    DgMail.ItemsSource = allMail;
+                    AppendToConsole($"Loaded {allMail.Count} mail items", "SYSTEM");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to search mail: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnRefreshCurrency_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_dbManager == null)
+                {
+                    MessageBox.Show("Database manager not initialized", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var currencies = _dbManager.GetAllCurrency();
+                DgCurrency.ItemsSource = currencies;
+                
+                AppendToConsole($"Loaded {currencies.Count} character currency records", "SYSTEM");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to load currency data: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnSearchCurrency_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_dbManager == null)
+                {
+                    MessageBox.Show("Database manager not initialized", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var allCurrency = _dbManager.GetAllCurrency();
+                string searchTerm = CurrencySearch.Text.ToLower();
+                
+                if (!string.IsNullOrEmpty(searchTerm))
+                {
+                    var filtered = allCurrency.Where(c => 
+                        c.Character.ToLower().Contains(searchTerm)).ToList();
+                    DgCurrency.ItemsSource = filtered;
+                    AppendToConsole($"Found {filtered.Count} characters matching '{searchTerm}'", "SYSTEM");
+                }
+                else
+                {
+                    DgCurrency.ItemsSource = allCurrency;
+                    AppendToConsole($"Loaded {allCurrency.Count} character currency records", "SYSTEM");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to search currency data: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        // Mail Sending Event Handlers
+        
+        private void BtnSendMail_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_dbManager == null)
+                {
+                    MessageBox.Show("Database manager not initialized", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                string recipient = MailRecipient.Text.Trim();
+                string subject = MailSubject.Text.Trim();
+                string body = MailBody.Text.Trim();
+                
+                if (!int.TryParse(MailGold.Text, out int gold) || gold < 0)
+                {
+                    MessageBox.Show("Please enter a valid gold amount.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                if (MailSendToAll.IsChecked == true)
+                {
+                    // Send to all players
+                    var result = MessageBox.Show($"Send mail to ALL players?", "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                    if (result == MessageBoxResult.Yes)
+                    {
+                        _dbManager.SendMailToAll(subject, body, gold, new List<int>());
+                        MessageBox.Show("Mail sent to all players successfully.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                        AppendToConsole("Mail sent to all players", "SYSTEM");
+                    }
+                }
+                else
+                {
+                    // Send to specific player
+                    if (string.IsNullOrEmpty(recipient))
+                    {
+                        MessageBox.Show("Please enter a recipient name.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        return;
+                    }
+                    
+                    if (string.IsNullOrEmpty(subject))
+                    {
+                        MessageBox.Show("Please enter a subject.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        return;
+                    }
+                    
+                    _dbManager.SendMailToPlayer(recipient, subject, body, gold, new List<int>());
+                    MessageBox.Show($"Mail sent to {recipient} successfully.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                    AppendToConsole($"Mail sent to {recipient}", "SYSTEM");
+                }
+                
+                BtnRefreshMail_Click(sender, e);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to send mail: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnClearMail_Click(object sender, RoutedEventArgs e)
+        {
+            MailRecipient.Text = string.Empty;
+            MailSubject.Text = string.Empty;
+            MailBody.Text = string.Empty;
+            MailGold.Text = "0";
+            MailSendToAll.IsChecked = false;
+        }
+        
+        private void BtnRefreshMailTemplates_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_dbManager == null)
+                {
+                    MessageBox.Show("Database manager not initialized", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var templates = _dbManager.GetAllMailTemplates();
+                DgMailTemplates.ItemsSource = templates;
+                
+                AppendToConsole($"Loaded {templates.Count} mail templates", "SYSTEM");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to load mail templates: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnNewMailTemplate_Click(object sender, RoutedEventArgs e)
+        {
+            MessageBox.Show("Template editor not implemented yet. Use database to create templates.", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        
+        private void BtnSendTemplate_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_dbManager == null)
+                {
+                    MessageBox.Show("Database manager not initialized", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var button = sender as System.Windows.Controls.Button;
+                int templateId = Convert.ToInt32(button?.Tag);
+                
+                var templates = _dbManager.GetAllMailTemplates();
+                var template = templates.FirstOrDefault(t => t.Id == templateId);
+                
+                if (template == null)
+                {
+                    MessageBox.Show("Template not found", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var result = MessageBox.Show($"Send template '{template.Subject}' to ALL players?", "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (result == MessageBoxResult.Yes)
+                {
+                    // Use Alliance money as default (could add faction selection)
+                    _dbManager.SendMailToAll(template.Subject, template.Body, template.MoneyA, new List<int>());
+                    MessageBox.Show("Template sent to all players successfully.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                    AppendToConsole($"Mail template {templateId} sent to all players", "SYSTEM");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to send template: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnEditTemplate_Click(object sender, RoutedEventArgs e)
+        {
+            MessageBox.Show("Template editor not implemented yet. Use database to edit templates.", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         
         private void BtnRefreshIPBans_Click(object sender, RoutedEventArgs e)

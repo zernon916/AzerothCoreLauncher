@@ -1,7 +1,11 @@
 <Window x:Class="AzerothCoreLauncher.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:AzerothCoreLauncher"
         Title="AzerothCore Launcher" Height="700" Width="1200" WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <local:GMLevelToBoolConverter x:Key="GMLevelToBoolConverter"/>
+    </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -361,6 +365,13 @@
                                 <DataGridTextColumn Header="Last IP" Binding="{Binding LastIP}" Width="120"/>
                                 <DataGridTextColumn Header="Online" Binding="{Binding Online}" Width="60"/>
                                 <DataGridTextColumn Header="Locked" Binding="{Binding Locked}" Width="60"/>
+                                <DataGridTemplateColumn Header="GM" Width="60">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <ToggleButton IsChecked="{Binding GMLevel, Converter={StaticResource GMLevelToBoolConverter}}" Click="BtnToggleGM_Click" Tag="{Binding Username}" Width="40" Height="20"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
                                 <DataGridTemplateColumn Header="Actions" Width="120">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
@@ -475,6 +486,180 @@
                         </DataGrid.Columns>
                     </DataGrid>
                 </Grid>
+            </TabItem>
+            
+            <!-- Economy Tab -->
+            <TabItem Header="Economy">
+                <TabControl>
+                    <!-- Auction House Sub-tab -->
+                    <TabItem Header="Auction House">
+                        <Grid Margin="10">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            
+                            <!-- Controls -->
+                            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
+                                <TextBox x:Name="AuctionSearch" Width="200" Height="30" Margin="5"/>
+                                <Button Content="Search" Width="80" Height="30" Margin="5" Click="BtnSearchAuctions_Click"/>
+                                <Button Content="Refresh" Width="80" Height="30" Margin="5" Click="BtnRefreshAuctions_Click"/>
+                            </StackPanel>
+                            
+                            <!-- Auction DataGrid -->
+                            <DataGrid x:Name="DgAuctions" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" Margin="0,5">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="60"/>
+                                    <DataGridTextColumn Header="Item" Binding="{Binding ItemName}" Width="200"/>
+                                    <DataGridTextColumn Header="Seller" Binding="{Binding Seller}" Width="120"/>
+                                    <DataGridTextColumn Header="Buyout" Binding="{Binding Buyout}" Width="100"/>
+                                    <DataGridTextColumn Header="Bid" Binding="{Binding Bid}" Width="100"/>
+                                    <DataGridTextColumn Header="Time Left" Binding="{Binding TimeLeft}" Width="80"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
+                    </TabItem>
+                    
+                    <!-- Mail Sub-tab -->
+                    <TabItem Header="Mail">
+                        <Grid Margin="10">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            
+                            <!-- Send Mail Section -->
+                            <Border Grid.Row="0" BorderBrush="#FF555555" BorderThickness="1" Background="#FF222222" Padding="15" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <TextBlock Text="Send Mail" FontSize="14" FontWeight="Bold" Margin="0,0,0,10" Foreground="White"/>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Recipient:" VerticalAlignment="Center" Foreground="LightGray" Margin="0,0,5,0"/>
+                                        <TextBox x:Name="MailRecipient" Grid.Column="1" Height="25" Margin="0,0,10,0"/>
+                                        <CheckBox x:Name="MailSendToAll" Grid.Column="2" Content="Send to All" VerticalAlignment="Center" Foreground="LightGray"/>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Subject:" VerticalAlignment="Center" Foreground="LightGray" Margin="0,0,5,0"/>
+                                        <TextBox x:Name="MailSubject" Grid.Column="1" Height="25"/>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Body:" VerticalAlignment="Top" Foreground="LightGray" Margin="0,0,5,0"/>
+                                        <TextBox x:Name="MailBody" Grid.Column="1" Height="80" TextWrapping="Wrap" AcceptsReturn="True"/>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Gold (copper):" VerticalAlignment="Center" Foreground="LightGray" Margin="0,0,5,0"/>
+                                        <TextBox x:Name="MailGold" Grid.Column="1" Height="25" Text="0"/>
+                                    </Grid>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                        <Button Content="Send Mail" Width="100" Height="30" Margin="5" Click="BtnSendMail_Click"/>
+                                        <Button Content="Clear" Width="80" Height="30" Margin="5" Click="BtnClearMail_Click"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                            
+                            <!-- View Mail Section -->
+                            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,10">
+                                <TextBox x:Name="MailSearch" Width="200" Height="30" Margin="5"/>
+                                <Button Content="Search" Width="80" Height="30" Margin="5" Click="BtnSearchMail_Click"/>
+                                <Button Content="Refresh" Width="80" Height="30" Margin="5" Click="BtnRefreshMail_Click"/>
+                            </StackPanel>
+                            
+                            <!-- Mail DataGrid -->
+                            <DataGrid x:Name="DgMail" Grid.Row="2" AutoGenerateColumns="False" IsReadOnly="True" Margin="0,5">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="60"/>
+                                    <DataGridTextColumn Header="Sender" Binding="{Binding Sender}" Width="120"/>
+                                    <DataGridTextColumn Header="Receiver" Binding="{Binding Receiver}" Width="120"/>
+                                    <DataGridTextColumn Header="Subject" Binding="{Binding Subject}" Width="200"/>
+                                    <DataGridTextColumn Header="Has Items" Binding="{Binding HasItems}" Width="80"/>
+                                    <DataGridTextColumn Header="Gold" Binding="{Binding Gold}" Width="80"/>
+                                    <DataGridTextColumn Header="Date" Binding="{Binding Date}" Width="120"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
+                    </TabItem>
+                    
+                    <!-- Currency/Points Sub-tab -->
+                    <TabItem Header="Currency">
+                        <Grid Margin="10">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            
+                            <!-- Controls -->
+                            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
+                                <TextBox x:Name="CurrencySearch" Width="200" Height="30" Margin="5"/>
+                                <Button Content="Search" Width="80" Height="30" Margin="5" Click="BtnSearchCurrency_Click"/>
+                                <Button Content="Refresh" Width="80" Height="30" Margin="5" Click="BtnRefreshCurrency_Click"/>
+                            </StackPanel>
+                            
+                            <!-- Currency DataGrid -->
+                            <DataGrid x:Name="DgCurrency" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" Margin="0,5">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Character" Binding="{Binding Character}" Width="150"/>
+                                    <DataGridTextColumn Header="Honor Points" Binding="{Binding HonorPoints}" Width="100"/>
+                                    <DataGridTextColumn Header="Arena Points" Binding="{Binding ArenaPoints}" Width="100"/>
+                                    <DataGridTextColumn Header="Gold" Binding="{Binding Gold}" Width="100"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
+                    </TabItem>
+                    
+                    <!-- Mail Templates Sub-tab -->
+                    <TabItem Header="Mail Templates">
+                        <Grid Margin="10">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            
+                            <!-- Controls -->
+                            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
+                                <Button Content="New Template" Width="120" Height="30" Margin="5" Click="BtnNewMailTemplate_Click"/>
+                                <Button Content="Refresh" Width="80" Height="30" Margin="5" Click="BtnRefreshMailTemplates_Click"/>
+                            </StackPanel>
+                            
+                            <!-- Templates DataGrid -->
+                            <DataGrid x:Name="DgMailTemplates" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" Margin="0,5">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="60"/>
+                                    <DataGridTextColumn Header="Subject" Binding="{Binding Subject}" Width="200"/>
+                                    <DataGridTextColumn Header="Money A" Binding="{Binding MoneyA}" Width="80"/>
+                                    <DataGridTextColumn Header="Money H" Binding="{Binding MoneyH}" Width="80"/>
+                                    <DataGridTextColumn Header="Active" Binding="{Binding Active}" Width="60"/>
+                                    <DataGridTemplateColumn Header="Actions" Width="120">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Button Content="Send" Click="BtnSendTemplate_Click" Tag="{Binding Id}" Width="50" Margin="0,0,5,0"/>
+                                                    <Button Content="Edit" Click="BtnEditTemplate_Click" Tag="{Binding Id}" Width="50"/>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
+                    </TabItem>
+                </TabControl>
             </TabItem>
             
             <!-- Server Analytics Tab -->

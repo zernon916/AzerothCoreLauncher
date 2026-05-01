@@ -17,6 +17,7 @@ namespace AzerothCoreLauncher
 
         private DatabaseManager? _dbManager;
         private ItemCache? _itemCache;
+        private SkillCache? _skillCache;
 
         public PlayerDetailsModal()
         {
@@ -31,13 +32,14 @@ namespace AzerothCoreLauncher
             DgQuests.ItemsSource = QuestItems;
         }
 
-        public PlayerDetailsModal(int characterGuid, string characterName, int accountId, DatabaseManager dbManager, ItemCache itemCache) : this()
+        public PlayerDetailsModal(int characterGuid, string characterName, int accountId, DatabaseManager dbManager, ItemCache itemCache, SkillCache skillCache) : this()
         {
             CharacterGuid = characterGuid;
             CharacterName = characterName;
             AccountId = accountId;
             _dbManager = dbManager;
             _itemCache = itemCache;
+            _skillCache = skillCache;
 
             Title = $"Player Details - {CharacterName}";
             
@@ -63,21 +65,51 @@ namespace AzerothCoreLauncher
 
         private void LoadProfile()
         {
-            var query = $"SELECT c.guid, c.name, c.race, c.class, c.level, c.zone, c.map, c.online, c.totaltime, c.leveltime, c.account FROM characters c WHERE c.guid = '{CharacterGuid}'";
+            var query = $"SELECT c.guid, c.name, c.race, c.class, c.level, c.zone, c.map, c.online, c.totaltime, c.leveltime, c.account, c.money FROM characters c WHERE c.guid = '{CharacterGuid}'";
             var dataTable = _dbManager!.ExecuteQuery(query);
 
             if (dataTable.Rows.Count > 0)
             {
                 var row = dataTable.Rows[0];
-                TxtProfileName.Text = row["name"].ToString();
-                TxtProfileLevel.Text = row["level"].ToString();
-                TxtProfileRace.Text = GetRaceName(Convert.ToInt32(row["race"]));
-                TxtProfileClass.Text = GetClassName(Convert.ToInt32(row["class"]));
-                TxtProfileZone.Text = row["zone"].ToString();
-                TxtProfileMap.Text = row["map"].ToString();
-                TxtProfileOnline.Text = Convert.ToInt32(row["online"]) == 1 ? "Yes" : "No";
-                TxtProfilePlaytime.Text = FormatPlaytime(Convert.ToInt32(row["totaltime"]));
-                TxtProfileLevelTime.Text = FormatPlaytime(Convert.ToInt32(row["leveltime"]));
+                TxtProfileName.Text = $"Name: {row["name"]}";
+                TxtProfileLevel.Text = $"Level: {row["level"]}";
+                TxtProfileRace.Text = $"Race: {GetRaceName(Convert.ToInt32(row["race"]))}";
+                TxtProfileClass.Text = $"Class: {GetClassName(Convert.ToInt32(row["class"]))}";
+                
+                int zoneId = 0;
+                if (row["zone"] != DBNull.Value && int.TryParse(row["zone"].ToString(), out zoneId))
+                {
+                    var zoneName = GetZoneName(zoneId);
+                    TxtProfileZone.Text = $"Zone: {zoneName} (ID: {zoneId})";
+                }
+                else
+                {
+                    TxtProfileZone.Text = "Zone: Unknown";
+                }
+                
+                TxtProfileMap.Text = $"Map: {row["map"]}";
+                TxtProfileOnline.Text = $"Online: {(Convert.ToInt32(row["online"]) == 1 ? "Yes" : "No")}";
+                TxtProfilePlaytime.Text = $"Total Playtime: {FormatPlaytime(Convert.ToInt32(row["totaltime"]))}";
+                TxtProfileLevelTime.Text = $"Level Playtime: {FormatPlaytime(Convert.ToInt32(row["leveltime"]))}";
+                
+                // Load money (money is stored in copper, 100 copper = 1 silver, 100 silver = 1 gold)
+                if (row["money"] != DBNull.Value)
+                {
+                    int copper = Convert.ToInt32(row["money"]);
+                    int gold = copper / 10000;
+                    int silver = (copper % 10000) / 100;
+                    int remainingCopper = copper % 100;
+                    
+                    TxtProfileGold.Text = gold.ToString();
+                    TxtProfileSilver.Text = silver.ToString();
+                    TxtProfileCopper.Text = remainingCopper.ToString();
+                }
+                else
+                {
+                    TxtProfileGold.Text = "0";
+                    TxtProfileSilver.Text = "0";
+                    TxtProfileCopper.Text = "0";
+                }
             }
         }
 
@@ -125,13 +157,28 @@ namespace AzerothCoreLauncher
 
             foreach (System.Data.DataRow row in dataTable.Rows)
             {
+                int skillId = Convert.ToInt32(row["skill"]);
+                string skillName = "Unknown";
+                
+                if (_skillCache != null)
+                {
+                    var skill = _skillCache.GetSkill(skillId);
+                    if (skill != null)
+                    {
+                        skillName = skill.Name;
+                    }
+                }
+                
                 SkillItems.Add(new SkillItem
                 {
-                    SkillId = Convert.ToInt32(row["skill"]),
+                    SkillId = skillId,
+                    SkillName = skillName,
                     Value = Convert.ToInt32(row["value"]),
                     Max = Convert.ToInt32(row["max"])
                 });
             }
+
+            DgSkills.ItemsSource = SkillItems;
         }
 
         private void LoadQuests()
@@ -198,6 +245,103 @@ namespace AzerothCoreLauncher
             };
         }
 
+        private string GetZoneName(int zoneId)
+        {
+            return zoneId switch
+            {
+                0 => "Eastern Kingdoms",
+                1 => "Kalimdor",
+                530 => "Outland",
+                571 => "Northrend",
+                860 => "Pandaria",
+                1116 => "Draenor",
+                1220 => "Broken Isles",
+                1642 => "Kul Tiras",
+                1643 => "Zandalar",
+                1519 => "Stormwind City",
+                1637 => "Orgrimmar",
+                1638 => "Ironforge",
+                1497 => "Undercity",
+                1657 => "Darnassus",
+                1498 => "Thunder Bluff",
+                1537 => "Silvermoon City",
+                3557 => "Exodar",
+                1499 => "Moonglade",
+                440 => "Tanaris",
+                85 => "Tirisfal Glades",
+                10 => "Duskwood",
+                11 => "Wetlands",
+                12 => "Elwynn Forest",
+                14 => "Arathi Highlands",
+                15 => "Badlands",
+                16 => "Blasted Lands",
+                17 => "Teldrassil",
+                28 => "Western Plaguelands",
+                33 => "Stranglethorn Vale",
+                36 => "Alterac Mountains",
+                38 => "Loch Modan",
+                40 => "Westfall",
+                41 => "Deadwind Pass",
+                44 => "Redridge Mountains",
+                45 => "Arathi Basin",
+                46 => "Burning Steppes",
+                47 => "The Hinterlands",
+                48 => "Searing Gorge",
+                49 => "Un'Goro Crater",
+                50 => "Silithus",
+                51 => "Winterspring",
+                139 => "Eastern Plaguelands",
+                141 => "Teldrassil",
+                148 => "Darkshore",
+                215 => "Mulgore",
+                267 => "Hillsbrad Foothills",
+                331 => "Ashenvale",
+                357 => "Feralas",
+                400 => "Thousand Needles",
+                405 => "Desolace",
+                406 => "Stonetalon Mountains",
+                490 => "Un'Goro Crater",
+                618 => "Winterspring",
+                1377 => "Silithus",
+                3430 => "Eversong Woods",
+                3487 => "Hellfire Peninsula",
+                3518 => "Nagrand",
+                3519 => "Terokkar Forest",
+                3520 => "Zangarmarsh",
+                3521 => "Blade's Edge Mountains",
+                3522 => "Netherstorm",
+                3523 => "Shadowmoon Valley",
+                3524 => "Azuremyst Isle",
+                3525 => "Bloodmyst Isle",
+                3537 => "Borean Tundra",
+                3711 => "Shattrath City",
+                3703 => "Dalaran",
+                4197 => "Wintergrasp",
+                4395 => "Dalaran",
+                4494 => "Icecrown",
+                4710 => "The Ruby Sanctum",
+                4812 => "Mount Hyjal",
+                4813 => "Deepholm",
+                4815 => "Uldum",
+                4862 => "Tol Barad",
+                5034 => "The Jade Forest",
+                5104 => "Valley of the Four Winds",
+                5135 => "Kun-Lai Summit",
+                5145 => "Townlong Steppes",
+                5165 => "Vale of Eternal Blossoms",
+                5287 => "Isle of Thunder",
+                5428 => "Timeless Isle",
+                5785 => "Shadowmoon Valley",
+                5791 => "Frostfire Ridge",
+                5887 => "Tanaan Jungle",
+                5905 => "Broken Shore",
+                6308 => "Argus",
+                6341 => "Nazjatar",
+                6461 => "Mechagon",
+                _ => $"Zone {zoneId}"
+            };
+        }
+
         private string FormatPlaytime(int seconds)
         {
             var span = TimeSpan.FromSeconds(seconds);
@@ -243,6 +387,30 @@ namespace AzerothCoreLauncher
         {
             DgQuests.ItemsSource = QuestItems;
         }
+
+        private void BtnSaveGold_Click(object sender, RoutedEventArgs e)
+        {
+            if (!int.TryParse(TxtProfileGold.Text, out int gold) || gold < 0 ||
+                !int.TryParse(TxtProfileSilver.Text, out int silver) || silver < 0 ||
+                !int.TryParse(TxtProfileCopper.Text, out int copper) || copper < 0)
+            {
+                MessageBox.Show("Please enter valid amounts for gold, silver, and copper.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            try
+            {
+                // Convert gold, silver, copper to copper (1 gold = 10000 copper, 1 silver = 100 copper)
+                int totalCopper = (gold * 10000) + (silver * 100) + copper;
+                var query = $"UPDATE characters SET money = {totalCopper} WHERE guid = '{CharacterGuid}'";
+                _dbManager!.ExecuteNonQuery(query);
+                MessageBox.Show("Money amount updated successfully.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to update money: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
     }
 
     public class InventoryItem
@@ -258,6 +426,7 @@ namespace AzerothCoreLauncher
     public class SkillItem
     {
         public int SkillId { get; set; }
+        public string SkillName { get; set; } = string.Empty;
         public int Value { get; set; }
         public int Max { get; set; }
     }

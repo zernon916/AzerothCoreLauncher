@@ -647,9 +647,11 @@ namespace AzerothCoreLauncher
                 connection.Open();
                 
                 string query = @"
-                    SELECT id, username, email, last_login, locked, expansion, joindate, last_ip, online, totaltime, failed_logins
-                    FROM account 
-                    ORDER BY username";
+                    SELECT a.id, a.username, a.email, a.last_login, a.locked, a.expansion, a.joindate, a.last_ip, a.online, a.totaltime, a.failed_logins, 
+                           COALESCE(aa.gmlevel, 0) as gmlevel
+                    FROM account a
+                    LEFT JOIN account_access aa ON a.id = aa.id
+                    ORDER BY a.username";
                 
                 using var command = new MySqlCommand(query, connection);
                 using var reader = command.ExecuteReader();
@@ -668,7 +670,8 @@ namespace AzerothCoreLauncher
                         LastIP = reader.GetString("last_ip"),
                         Online = reader.GetInt32("online") == 1,
                         TotalTime = reader.GetInt32("totaltime"),
-                        FailedLogins = reader.GetInt32("failed_logins")
+                        FailedLogins = reader.GetInt32("failed_logins"),
+                        GMLevel = reader.GetInt32("gmlevel")
                     });
                 }
                 
@@ -1261,6 +1264,478 @@ namespace AzerothCoreLauncher
             
             return dataTable;
         }
+        
+        public int ExecuteNonQuery(string query)
+        {
+            try
+            {
+                using var connection = new MySqlConnection(_connectionString);
+                connection.Open();
+                
+                using var command = new MySqlCommand(query, connection);
+                return command.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to execute non-query: {ex.Message}");
+            }
+        }
+        
+        public void SetGMLevel(string username, int gmLevel)
+        {
+            try
+            {
+                using var connection = new MySqlConnection(_authConnectionString);
+                connection.Open();
+                
+                // First get the account id
+                string getIdQuery = "SELECT id FROM account WHERE username = @username";
+                using var getIdCommand = new MySqlCommand(getIdQuery, connection);
+                getIdCommand.Parameters.AddWithValue("@username", username);
+                var result = getIdCommand.ExecuteScalar();
+                
+                if (result == null)
+                {
+                    throw new Exception("Account not found");
+                }
+                
+                int accountId = Convert.ToInt32(result);
+                
+                // Check if account_access entry exists
+                string checkQuery = "SELECT COUNT(*) FROM account_access WHERE id = @id";
+                using var checkCommand = new MySqlCommand(checkQuery, connection);
+                checkCommand.Parameters.AddWithValue("@id", accountId);
+                int count = Convert.ToInt32(checkCommand.ExecuteScalar());
+                
+                if (count > 0)
+                {
+                    // Update existing entry
+                    string updateQuery = "UPDATE account_access SET gmlevel = @gmlevel WHERE id = @id";
+                    using var updateCommand = new MySqlCommand(updateQuery, connection);
+                    updateCommand.Parameters.AddWithValue("@gmlevel", gmLevel);
+                    updateCommand.Parameters.AddWithValue("@id", accountId);
+                    updateCommand.ExecuteNonQuery();
+                }
+                else
+                {
+                    // Insert new entry if setting to GM
+                    if (gmLevel > 0)
+                    {
+                        string insertQuery = "INSERT INTO account_access (id, gmlevel, realmid) VALUES (@id, @gmlevel, -1)";
+                        using var insertCommand = new MySqlCommand(insertQuery, connection);
+                        insertCommand.Parameters.AddWithValue("@id", accountId);
+                        insertCommand.Parameters.AddWithValue("@gmlevel", gmLevel);
+                        insertCommand.ExecuteNonQuery();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to set GM level: {ex.Message}");
+            }
+        }
+        
+        public List<AuctionItem> GetAllAuctions()
+        {
+            var auctions = new List<AuctionItem>();
+            try
+            {
+                using var connection = new MySqlConnection(_connectionString);
+                connection.Open();
+                
+                string query = @"
+                    SELECT ah.id, ah.itemguid, ah.buyoutprice, ah.startbid, ah.time, ah.lastbid,
+                           c.name as seller
+                    FROM auctionhouse ah
+                    LEFT JOIN characters c ON ah.itemowner = c.guid
+                    ORDER BY ah.id";
+                
+                using var command = new MySqlCommand(query, connection);
+                using var reader = command.ExecuteReader();
+                
+                while (reader.Read())
+                {
+                    int itemGuid = reader.GetInt32("itemguid");
+                    string itemName = $"Item GUID {itemGuid}"; // Will need item_instance lookup for names
+                    
+                    auctions.Add(new AuctionItem
+                    {
+                        Id = reader.GetInt32("id"),
+                        ItemName = itemName,
+                        Seller = reader.IsDBNull("seller") ? "Unknown" : reader.GetString("seller"),
+                        Buyout = reader.GetInt32("buyoutprice"),
+                        Bid = reader.GetInt32("startbid"),
+                        TimeLeft = reader.GetInt32("time").ToString()
+                    });
+                }
+                
+                return auctions;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to get auctions: {ex.Message}");
+            }
+        }
+        
+        public List<MailItem> GetAllMail()
+        {
+            var mails = new List<MailItem>();
+            try
+            {
+                using var connection = new MySqlConnection(_connectionString);
+                connection.Open();
+                
+                string query = @"
+                    SELECT m.id, m.sender, m.receiver, m.subject, m.has_items, m.money, m.deliver_time, m.stationery, m.messageType,
+                           sc.name as sender_name, rc.name as receiver_name,
+                           qms.RewardMailSenderEntry
+                    FROM mail m
+                    LEFT JOIN characters sc ON m.sender = sc.guid
+                    LEFT JOIN characters rc ON m.receiver = rc.guid
+                    LEFT JOIN acore_world.quest_mail_sender qms ON m.sender = qms.RewardMailSenderEntry
+                    ORDER BY m.id DESC LIMIT 500";
+                
+                using var command = new MySqlCommand(query, connection);
+                using var reader = command.ExecuteReader();
+                
+                while (reader.Read())
+                {
+                    int sender = reader.GetInt32("sender");
+                    int receiver = reader.GetInt32("receiver");
+                    int stationery = reader.GetInt32("stationery");
+                    int messageType = reader.GetInt32("messageType");
+                    
+                    // Handle sender name based on message type
+                    string senderName = string.Empty;
+                    
+                    if (messageType == 2)
+                    {
+                        // Auction House
+                        senderName = sender switch
+                        {
+                            2 => "Alliance AH",
+                            6 => "Horde AH",
+                            7 => "Neutral AH",
+                            _ => "Auction House"
+                        };
+                    }
+                    else if (messageType == 3)
+                    {
+                        // Creature - show GUID for now (need creature table fix)
+                        senderName = $"Creature {sender}";
+                    }
+                    else
+                    {
+                        // Normal mail or other
+                        senderName = reader.IsDBNull("sender_name") ? string.Empty : reader.GetString("sender_name");
+                        
+                        // Check for quest reward sender
+                        if (string.IsNullOrEmpty(senderName) && !reader.IsDBNull("RewardMailSenderEntry"))
+                        {
+                            senderName = $"Quest Reward (ID: {reader.GetInt32("RewardMailSenderEntry")})";
+                        }
+                        
+                        // Fallback to GUID
+                        if (string.IsNullOrEmpty(senderName))
+                        {
+                            senderName = $"GUID {sender}";
+                        }
+                    }
+                    
+                    // Handle receiver name
+                    string receiverName = reader.IsDBNull("receiver_name") ? $"GUID {receiver}" : reader.GetString("receiver_name");
+                    
+                    // Handle subject (parse AH mail data)
+                    string subject = reader.IsDBNull("subject") ? "(No Subject)" : reader.GetString("subject");
+                    if (stationery == 62 && subject.Contains(':'))
+                    {
+                        // Auction House mail - parse the item ID
+                        string[] parts = subject.Split(':');
+                        if (parts.Length > 0 && int.TryParse(parts[0], out int itemId))
+                        {
+                            subject = $"AH Item ID: {itemId}";
+                        }
+                    }
+                    
+                    DateTime deliverTime = DateTime.MinValue;
+                    try
+                    {
+                        deliverTime = reader.GetDateTime("deliver_time");
+                    }
+                    catch
+                    {
+                        // Invalid date, use MinValue
+                    }
+                    
+                    mails.Add(new MailItem
+                    {
+                        Id = reader.GetInt32("id"),
+                        Sender = senderName,
+                        Receiver = receiverName,
+                        Subject = subject,
+                        HasItems = reader.GetInt32("has_items") == 1,
+                        Gold = reader.GetInt32("money"),
+                        Date = deliverTime
+                    });
+                }
+                
+                return mails;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to get mail: {ex.Message}");
+            }
+        }
+        
+        public List<CurrencyData> GetAllCurrency()
+        {
+            var currencies = new List<CurrencyData>();
+            try
+            {
+                using var connection = new MySqlConnection(_connectionString);
+                connection.Open();
+                
+                string query = @"
+                    SELECT c.name, c.money
+                    FROM characters c
+                    WHERE c.online = 1
+                    ORDER BY c.name";
+                
+                using var command = new MySqlCommand(query, connection);
+                using var reader = command.ExecuteReader();
+                
+                while (reader.Read())
+                {
+                    currencies.Add(new CurrencyData
+                    {
+                        Character = reader.GetString("name"),
+                        HonorPoints = 0, // Would need character_stats table
+                        ArenaPoints = 0, // Would need character_stats table
+                        Gold = reader.GetInt32("money") / 10000 // Convert to gold
+                    });
+                }
+                
+                return currencies;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to get currency data: {ex.Message}");
+            }
+        }
+        
+        public List<MailTemplate> GetAllMailTemplates()
+        {
+            var templates = new List<MailTemplate>();
+            try
+            {
+                using var connection = new MySqlConnection(_connectionString);
+                connection.Open();
+                
+                string query = "SELECT id, moneyA, moneyH, subject, body, active FROM mail_server_template ORDER BY id";
+                
+                using var command = new MySqlCommand(query, connection);
+                using var reader = command.ExecuteReader();
+                
+                while (reader.Read())
+                {
+                    templates.Add(new MailTemplate
+                    {
+                        Id = reader.GetInt32("id"),
+                        MoneyA = reader.GetInt32("moneyA"),
+                        MoneyH = reader.GetInt32("moneyH"),
+                        Subject = reader.GetString("subject"),
+                        Body = reader.GetString("body"),
+                        Active = reader.GetInt32("active") == 1
+                    });
+                }
+                
+                return templates;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to get mail templates: {ex.Message}");
+            }
+        }
+        
+        public List<MailTemplateCondition> GetMailTemplateConditions(int templateId)
+        {
+            var conditions = new List<MailTemplateCondition>();
+            try
+            {
+                using var connection = new MySqlConnection(_connectionString);
+                connection.Open();
+                
+                string query = "SELECT id, templateID, conditionType, conditionValue, conditionState FROM mail_server_template_conditions WHERE templateID = @templateId";
+                
+                using var command = new MySqlCommand(query, connection);
+                command.Parameters.AddWithValue("@templateId", templateId);
+                using var reader = command.ExecuteReader();
+                
+                while (reader.Read())
+                {
+                    conditions.Add(new MailTemplateCondition
+                    {
+                        Id = reader.GetInt32("id"),
+                        TemplateId = reader.GetInt32("templateID"),
+                        ConditionType = reader.GetString("conditionType"),
+                        ConditionValue = reader.GetInt32("conditionValue"),
+                        ConditionState = reader.GetInt32("conditionState")
+                    });
+                }
+                
+                return conditions;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to get mail template conditions: {ex.Message}");
+            }
+        }
+        
+        public List<MailTemplateItem> GetMailTemplateItems(int templateId)
+        {
+            var items = new List<MailTemplateItem>();
+            try
+            {
+                using var connection = new MySqlConnection(_connectionString);
+                connection.Open();
+                
+                string query = "SELECT id, templateID, faction, item, itemCount FROM mail_server_template_items WHERE templateID = @templateId";
+                
+                using var command = new MySqlCommand(query, connection);
+                command.Parameters.AddWithValue("@templateId", templateId);
+                using var reader = command.ExecuteReader();
+                
+                while (reader.Read())
+                {
+                    items.Add(new MailTemplateItem
+                    {
+                        Id = reader.GetInt32("id"),
+                        TemplateId = reader.GetInt32("templateID"),
+                        Faction = reader.GetString("faction"),
+                        Item = reader.GetInt32("item"),
+                        ItemCount = reader.GetInt32("itemCount")
+                    });
+                }
+                
+                return items;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to get mail template items: {ex.Message}");
+            }
+        }
+        
+        public void SendMailToPlayer(string playerName, string subject, string body, int money, List<int> itemGuids)
+        {
+            try
+            {
+                using var connection = new MySqlConnection(_connectionString);
+                connection.Open();
+                
+                // Get player GUID
+                string getGuidQuery = "SELECT guid FROM characters WHERE name = @name";
+                using var getGuidCommand = new MySqlCommand(getGuidQuery, connection);
+                getGuidCommand.Parameters.AddWithValue("@name", playerName);
+                var result = getGuidCommand.ExecuteScalar();
+                
+                if (result == null)
+                {
+                    throw new Exception("Player not found");
+                }
+                
+                int playerGuid = Convert.ToInt32(result);
+                
+                // Insert mail
+                string insertMailQuery = @"
+                    INSERT INTO mail (messageType, stationery, mailTemplateId, sender, receiver, subject, body, has_items, expire_time, deliver_time, money, cod, checked)
+                    VALUES (0, 41, 0, 0, @receiver, @subject, @body, @hasItems, UNIX_TIMESTAMP() + 259200, UNIX_TIMESTAMP(), @money, 0, 0)";
+                
+                using var insertMailCommand = new MySqlCommand(insertMailQuery, connection);
+                insertMailCommand.Parameters.AddWithValue("@receiver", playerGuid);
+                insertMailCommand.Parameters.AddWithValue("@subject", subject);
+                insertMailCommand.Parameters.AddWithValue("@body", body);
+                insertMailCommand.Parameters.AddWithValue("@hasItems", itemGuids.Count > 0 ? 1 : 0);
+                insertMailCommand.Parameters.AddWithValue("@money", money);
+                insertMailCommand.ExecuteNonQuery();
+                
+                // Get the inserted mail ID
+                long mailId = insertMailCommand.LastInsertedId;
+                
+                // Insert mail items if any
+                if (itemGuids.Count > 0)
+                {
+                    foreach (var itemGuid in itemGuids)
+                    {
+                        string insertItemQuery = "INSERT INTO mail_items (mail_id, item_guid, receiver) VALUES (@mailId, @itemGuid, @receiver)";
+                        using var insertItemCommand = new MySqlCommand(insertItemQuery, connection);
+                        insertItemCommand.Parameters.AddWithValue("@mailId", mailId);
+                        insertItemCommand.Parameters.AddWithValue("@itemGuid", itemGuid);
+                        insertItemCommand.Parameters.AddWithValue("@receiver", playerGuid);
+                        insertItemCommand.ExecuteNonQuery();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to send mail: {ex.Message}");
+            }
+        }
+        
+        public void SendMailToAll(string subject, string body, int money, List<int> itemGuids)
+        {
+            try
+            {
+                using var connection = new MySqlConnection(_connectionString);
+                connection.Open();
+                
+                // Get all player GUIDs
+                string getPlayersQuery = "SELECT guid FROM characters";
+                using var getPlayersCommand = new MySqlCommand(getPlayersQuery, connection);
+                using var reader = getPlayersCommand.ExecuteReader();
+                
+                var playerGuids = new List<int>();
+                while (reader.Read())
+                {
+                    playerGuids.Add(reader.GetInt32("guid"));
+                }
+                reader.Close();
+                
+                // Send mail to each player
+                foreach (var playerGuid in playerGuids)
+                {
+                    string insertMailQuery = @"
+                        INSERT INTO mail (messageType, stationery, mailTemplateId, sender, receiver, subject, body, has_items, expire_time, deliver_time, money, cod, checked)
+                        VALUES (0, 41, 0, 0, @receiver, @subject, @body, @hasItems, UNIX_TIMESTAMP() + 259200, UNIX_TIMESTAMP(), @money, 0, 0)";
+                    
+                    using var insertMailCommand = new MySqlCommand(insertMailQuery, connection);
+                    insertMailCommand.Parameters.AddWithValue("@receiver", playerGuid);
+                    insertMailCommand.Parameters.AddWithValue("@subject", subject);
+                    insertMailCommand.Parameters.AddWithValue("@body", body);
+                    insertMailCommand.Parameters.AddWithValue("@hasItems", itemGuids.Count > 0 ? 1 : 0);
+                    insertMailCommand.Parameters.AddWithValue("@money", money);
+                    insertMailCommand.ExecuteNonQuery();
+                    
+                    long mailId = insertMailCommand.LastInsertedId;
+                    
+                    if (itemGuids.Count > 0)
+                    {
+                        foreach (var itemGuid in itemGuids)
+                        {
+                            string insertItemQuery = "INSERT INTO mail_items (mail_id, item_guid, receiver) VALUES (@mailId, @itemGuid, @receiver)";
+                            using var insertItemCommand = new MySqlCommand(insertItemQuery, connection);
+                            insertItemCommand.Parameters.AddWithValue("@mailId", mailId);
+                            insertItemCommand.Parameters.AddWithValue("@itemGuid", itemGuid);
+                            insertItemCommand.Parameters.AddWithValue("@receiver", playerGuid);
+                            insertItemCommand.ExecuteNonQuery();
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to send mail to all: {ex.Message}");
+            }
+        }
     }
     
     public class PlayerInfo
@@ -1325,6 +1800,7 @@ namespace AzerothCoreLauncher
         public bool Online { get; set; }
         public int TotalTime { get; set; }
         public int FailedLogins { get; set; }
+        public int GMLevel { get; set; }
     }
     
     public class LoginHistory
@@ -1333,6 +1809,63 @@ namespace AzerothCoreLauncher
         public string IPAddress { get; set; } = string.Empty;
         public bool Success { get; set; }
         public string Error { get; set; } = string.Empty;
+    }
+    
+    public class AuctionItem
+    {
+        public int Id { get; set; }
+        public string ItemName { get; set; } = string.Empty;
+        public string Seller { get; set; } = string.Empty;
+        public int Buyout { get; set; }
+        public int Bid { get; set; }
+        public string TimeLeft { get; set; } = string.Empty;
+    }
+    
+    public class MailItem
+    {
+        public int Id { get; set; }
+        public string Sender { get; set; } = string.Empty;
+        public string Receiver { get; set; } = string.Empty;
+        public string Subject { get; set; } = string.Empty;
+        public bool HasItems { get; set; }
+        public int Gold { get; set; }
+        public DateTime Date { get; set; }
+    }
+    
+    public class CurrencyData
+    {
+        public string Character { get; set; } = string.Empty;
+        public int HonorPoints { get; set; }
+        public int ArenaPoints { get; set; }
+        public int Gold { get; set; }
+    }
+    
+    public class MailTemplate
+    {
+        public int Id { get; set; }
+        public int MoneyA { get; set; }
+        public int MoneyH { get; set; }
+        public string Subject { get; set; } = string.Empty;
+        public string Body { get; set; } = string.Empty;
+        public bool Active { get; set; }
+    }
+    
+    public class MailTemplateCondition
+    {
+        public int Id { get; set; }
+        public int TemplateId { get; set; }
+        public string ConditionType { get; set; } = string.Empty;
+        public int ConditionValue { get; set; }
+        public int ConditionState { get; set; }
+    }
+    
+    public class MailTemplateItem
+    {
+        public int Id { get; set; }
+        public int TemplateId { get; set; }
+        public string Faction { get; set; } = string.Empty;
+        public int Item { get; set; }
+        public int ItemCount { get; set; }
     }
     
     public class PlayerCountHistory

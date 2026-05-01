@@ -15,32 +15,24 @@
                         <TextBlock Text="Character Information" FontSize="16" FontWeight="Bold" Foreground="White" Margin="0,0,0,20"/>
                         
                         <StackPanel>
-                            <TextBlock Text="Name:" Foreground="White" Margin="0,5"/>
-                            <TextBlock x:Name="TxtProfileName" Text="" Foreground="LightGray" Margin="0,0,0,15"/>
-                            
-                            <TextBlock Text="Level:" Foreground="White" Margin="0,5"/>
-                            <TextBlock x:Name="TxtProfileLevel" Text="" Foreground="LightGray" Margin="0,0,0,15"/>
-                            
-                            <TextBlock Text="Race:" Foreground="White" Margin="0,5"/>
-                            <TextBlock x:Name="TxtProfileRace" Text="" Foreground="LightGray" Margin="0,0,0,15"/>
-                            
-                            <TextBlock Text="Class:" Foreground="White" Margin="0,5"/>
-                            <TextBlock x:Name="TxtProfileClass" Text="" Foreground="LightGray" Margin="0,0,0,15"/>
-                            
-                            <TextBlock Text="Zone:" Foreground="White" Margin="0,5"/>
-                            <TextBlock x:Name="TxtProfileZone" Text="" Foreground="LightGray" Margin="0,0,0,15"/>
-                            
-                            <TextBlock Text="Map:" Foreground="White" Margin="0,5"/>
-                            <TextBlock x:Name="TxtProfileMap" Text="" Foreground="LightGray" Margin="0,0,0,15"/>
-                            
-                            <TextBlock Text="Online:" Foreground="White" Margin="0,5"/>
-                            <TextBlock x:Name="TxtProfileOnline" Text="" Foreground="LightGray" Margin="0,0,0,15"/>
-                            
-                            <TextBlock Text="Total Playtime:" Foreground="White" Margin="0,5"/>
-                            <TextBlock x:Name="TxtProfilePlaytime" Text="" Foreground="LightGray" Margin="0,0,0,15"/>
-                            
-                            <TextBlock Text="Level Playtime:" Foreground="White" Margin="0,5"/>
-                            <TextBlock x:Name="TxtProfileLevelTime" Text="" Foreground="LightGray" Margin="0,0,0,15"/>
+                            <TextBlock x:Name="TxtProfileName" Text="Name: " Foreground="LightGray" Margin="0,0,0,15"/>
+                            <TextBlock x:Name="TxtProfileLevel" Text="Level: " Foreground="LightGray" Margin="0,0,0,15"/>
+                            <TextBlock x:Name="TxtProfileRace" Text="Race: " Foreground="LightGray" Margin="0,0,0,15"/>
+                            <TextBlock x:Name="TxtProfileClass" Text="Class: " Foreground="LightGray" Margin="0,0,0,15"/>
+                            <TextBlock x:Name="TxtProfileZone" Text="Zone: " Foreground="LightGray" Margin="0,0,0,15"/>
+                            <TextBlock x:Name="TxtProfileMap" Text="Map: " Foreground="LightGray" Margin="0,0,0,15"/>
+                            <TextBlock x:Name="TxtProfileOnline" Text="Online: " Foreground="LightGray" Margin="0,0,0,15"/>
+                            <TextBlock x:Name="TxtProfilePlaytime" Text="Total Playtime: " Foreground="LightGray" Margin="0,0,0,15"/>
+                            <TextBlock x:Name="TxtProfileLevelTime" Text="Level Playtime: " Foreground="LightGray" Margin="0,0,0,15"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,15">
+                                <TextBlock Text="Gold:" VerticalAlignment="Center" Foreground="LightGray" Margin="0,0,5,0"/>
+                                <TextBox x:Name="TxtProfileGold" Width="80" Height="25" Margin="0,0,10,0" Foreground="Black"/>
+                                <TextBlock Text="Silver:" VerticalAlignment="Center" Foreground="LightGray" Margin="0,0,5,0"/>
+                                <TextBox x:Name="TxtProfileSilver" Width="80" Height="25" Margin="0,0,10,0" Foreground="Black"/>
+                                <TextBlock Text="Copper:" VerticalAlignment="Center" Foreground="LightGray" Margin="0,0,5,0"/>
+                                <TextBox x:Name="TxtProfileCopper" Width="80" Height="25" Margin="0,0,10,0" Foreground="Black"/>
+                                <Button x:Name="BtnSaveGold" Content="Save" Width="80" Height="25" Click="BtnSaveGold_Click"/>
+                            </StackPanel>
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
@@ -82,6 +74,7 @@
                     <DataGrid x:Name="DgSkills" AutoGenerateColumns="False" IsReadOnly="True" Margin="0,5">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Skill ID" Binding="{Binding SkillId}" Width="80"/>
+                            <DataGridTextColumn Header="Skill Name" Binding="{Binding SkillName}" Width="*"/>
                             <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="80"/>
                             <DataGridTextColumn Header="Max" Binding="{Binding Max}" Width="80"/>
                         </DataGrid.Columns>
