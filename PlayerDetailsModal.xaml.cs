@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Windows;
 
@@ -115,36 +116,61 @@ namespace AzerothCoreLauncher
 
         private void LoadInventory()
         {
-            var query = $"SELECT ci.bag, ci.slot, ci.item, ii.itemEntry, ii.count, ii.durability, ii.randomPropertyId, ii.flags FROM character_inventory ci LEFT JOIN item_instance ii ON ci.item = ii.guid WHERE ci.guid = '{CharacterGuid}' ORDER BY ci.bag, ci.slot";
-            var dataTable = _dbManager!.ExecuteQuery(query);
-
-            InventoryItems.Clear();
-
-            foreach (System.Data.DataRow row in dataTable.Rows)
+            try
             {
-                int itemEntry = Convert.ToInt32(row["itemEntry"]);
-                string itemName = "Unknown";
-                int quality = 0;
+                var basePath = AppDomain.CurrentDomain.BaseDirectory;
+                var dataPath = System.IO.Path.Combine(basePath, "data");
+                var logPath = System.IO.Path.Combine(dataPath, "Debug.log");
+                
+                File.AppendAllText(logPath, $"LoadInventory called for CharacterGuid: {CharacterGuid}\n");
+                File.AppendAllText(logPath, $"_itemCache is null: {_itemCache == null}\n");
+                
+                var query = $"SELECT ci.bag, ci.slot, ci.item, ii.itemEntry, ii.count, ii.durability, ii.randomPropertyId, ii.flags FROM character_inventory ci LEFT JOIN item_instance ii ON ci.item = ii.guid WHERE ci.guid = '{CharacterGuid}' ORDER BY ci.bag, ci.slot";
+                var dataTable = _dbManager!.ExecuteQuery(query);
+                
+                File.AppendAllText(logPath, $"Query returned {dataTable.Rows.Count} rows\n");
 
-                if (_itemCache != null)
+                InventoryItems.Clear();
+
+                foreach (System.Data.DataRow row in dataTable.Rows)
                 {
-                    var item = _itemCache.GetItem(itemEntry);
-                    if (item != null)
+                    int itemEntry = Convert.ToInt32(row["itemEntry"]);
+                    string itemName = "Unknown";
+                    int quality = 0;
+
+                    if (_itemCache != null)
                     {
-                        itemName = item.Name;
-                        quality = item.Quality;
+                        var item = _itemCache.GetItem(itemEntry);
+                        if (item != null)
+                        {
+                            itemName = item.Name;
+                            quality = item.Quality;
+                        }
+                        else
+                        {
+                            File.AppendAllText(logPath, $"Item not found in cache: {itemEntry}\n");
+                        }
                     }
-                }
 
-                InventoryItems.Add(new InventoryItem
-                {
-                    Slot = $"{row["bag"]}:{row["slot"]}",
-                    ItemEntry = itemEntry,
-                    ItemName = itemName,
-                    Count = Convert.ToInt32(row["count"]),
-                    Durability = Convert.ToInt32(row["durability"]),
-                    Quality = quality
-                });
+                    InventoryItems.Add(new InventoryItem
+                    {
+                        Slot = $"{row["bag"]}:{row["slot"]}",
+                        ItemEntry = itemEntry,
+                        ItemName = itemName,
+                        Count = Convert.ToInt32(row["count"]),
+                        Durability = Convert.ToInt32(row["durability"]),
+                        Quality = quality
+                    });
+                }
+                
+                File.AppendAllText(logPath, $"Added {InventoryItems.Count} items to InventoryItems\n");
+            }
+            catch (Exception ex)
+            {
+                var basePath = AppDomain.CurrentDomain.BaseDirectory;
+                var dataPath = System.IO.Path.Combine(basePath, "data");
+                var logPath = System.IO.Path.Combine(dataPath, "Debug.log");
+                File.AppendAllText(logPath, $"LoadInventory failed: {ex.Message}\n");
             }
         }
 

@@ -6,9 +6,20 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>logo.ico</ApplicationIcon>
   </PropertyGroup>
   
   <ItemGroup>
     <PackageReference Include="MySql.Data" Version="8.0.33" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <None Update="data\SkillLine.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="data\SkillLineAbility.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 </Project>

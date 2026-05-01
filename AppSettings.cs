@@ -41,6 +41,13 @@ namespace AzerothCoreLauncher
         public string MySqlDumpPath { get; set; } = "mysqldump"; // Path to mysqldump executable
         public string MySqlPath { get; set; } = "mysql"; // Path to mysql executable
         
+        // Notification Settings
+        public bool EnableTrayIcon { get; set; } = false;
+        public bool MinimizeToTray { get; set; } = false;
+        public bool EnableCrashAlerts { get; set; } = true;
+        public bool EnableAlertSound { get; set; } = false;
+        public bool EnableEventNotifications { get; set; } = false;
+        
         private static readonly string SettingsFilePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "AzerothCoreLauncher",
@@ -106,5 +113,33 @@ namespace AzerothCoreLauncher
         {
             return Path.Combine(ConfigDirectory, "authserver.conf");
         }
+        
+        public string GetModulesDirectory()
+        {
+            return Path.Combine(ConfigDirectory, "modules");
+        }
+    }
+    
+    public class ConfigSection
+    {
+        public string Name { get; set; } = string.Empty;
+        public List<ConfigSetting> Settings { get; set; } = new List<ConfigSetting>();
+    }
+    
+    public class ConfigSetting
+    {
+        public string Key { get; set; } = string.Empty;
+        public string Value { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public string OriginalLine { get; set; } = string.Empty;
+        public int LineNumber { get; set; }
+        public bool IsStandardFormat { get; set; } = true;
+    }
+    
+    public class Notification
+    {
+        public DateTime Time { get; set; } = DateTime.Now;
+        public string Type { get; set; } = "Info";
+        public string Message { get; set; } = string.Empty;
     }
 }

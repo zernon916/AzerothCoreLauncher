@@ -10,6 +10,7 @@ namespace AzerothCoreLauncher
         public string Type { get; set; } = "Command"; // Command, Restart, Announcement, etc.
         public string Target { get; set; } = "World"; // Auth, World
         public string Command { get; set; } = string.Empty;
+        public string Message { get; set; } = string.Empty; // For Announcement type
         public TimeSpan ScheduledTime { get; set; }
         public bool IsEnabled { get; set; } = true;
         public bool IsRecurring { get; set; } = false;

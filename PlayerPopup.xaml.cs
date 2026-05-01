@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Windows;
 
 namespace AzerothCoreLauncher
@@ -26,6 +27,20 @@ namespace AzerothCoreLauncher
             _dbManager = dbManager;
             _itemCache = itemCache;
             _skillCache = skillCache;
+
+            // Log for debugging
+            try
+            {
+                var basePath = AppDomain.CurrentDomain.BaseDirectory;
+                var dataPath = System.IO.Path.Combine(basePath, "data");
+                var logPath = System.IO.Path.Combine(dataPath, "Debug.log");
+                System.IO.File.AppendAllText(logPath, $"PlayerPopup created - _itemCache is null: {_itemCache == null}\n");
+                if (_itemCache != null)
+                {
+                    System.IO.File.AppendAllText(logPath, $"ItemCache count: {_itemCache.Count}\n");
+                }
+            }
+            catch { }
 
             TxtPlayerName.Text = $"{CharacterName} - Loading...";
             
@@ -223,13 +238,20 @@ namespace AzerothCoreLauncher
 
         private void BtnDetails_Click(object sender, RoutedEventArgs e)
         {
-            if (_dbManager != null && _itemCache != null && _skillCache != null)
+            try
             {
-                var modal = new PlayerDetailsModal(CharacterGuid, CharacterName ?? "", AccountId, _dbManager, _itemCache, _skillCache)
+                if (_dbManager == null)
                 {
-                    Owner = this
-                };
-                modal.ShowDialog();
+                    MessageBox.Show("Database manager is not available.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var modal = new PlayerDetailsModal(CharacterGuid, CharacterName ?? "", AccountId, _dbManager, _itemCache, _skillCache);
+                modal.Show();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to open details modal: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
     }

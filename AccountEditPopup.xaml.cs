@@ -155,13 +155,10 @@ namespace AzerothCoreLauncher
             {
                 var popup = new BanAccountPopup(_accountName, _accountName, _worldProcess);
                 popup.Owner = this;
-                var result = popup.ShowDialog();
+                popup.Show();
                 
-                if (result == true)
-                {
-                    // Refresh account info
-                    LoadAccountInfo();
-                }
+                // Refresh account info
+                LoadAccountInfo();
             }
             catch (Exception ex)
             {
@@ -193,7 +190,7 @@ namespace AzerothCoreLauncher
                 // Show account ban history
                 var popup = new BanHistoryPopup(_dbManager, _accountName, true);
                 popup.Owner = this;
-                popup.ShowDialog();
+                popup.Show();
             }
             catch (Exception ex)
             {

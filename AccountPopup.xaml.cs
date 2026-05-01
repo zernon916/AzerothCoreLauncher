@@ -124,12 +124,9 @@ namespace AzerothCoreLauncher
             {
                 var popup = new BanAccountPopup(_accountName, _characterName, _worldProcess);
                 popup.Owner = this;
-                var result = popup.ShowDialog();
+                popup.Show();
                 
-                if (result == true)
-                {
-                    // Ban was successful, refresh the ban history
-                }
+                // Ban was successful, refresh the ban history
             }
             catch (Exception ex)
             {
@@ -197,7 +194,7 @@ namespace AzerothCoreLauncher
                 // Show account ban history
                 var popup = new BanHistoryPopup(_dbManager, _accountName, true);
                 popup.Owner = this;
-                popup.ShowDialog();
+                popup.Show();
             }
             catch (Exception ex)
             {

@@ -1,176 +1,170 @@
 # AzerothCore Launcher
 
-A WPF-based GUI launcher for AzerothCore server management.
+A modern WPF-based GUI launcher for AzerothCore server management with comprehensive monitoring, automation, and notification features.
 
-## Features
+## Installation
 
-### Server Management
-- **Server Control**: Start/Stop AuthServer and WorldServer with real-time status lights
-- **Status Monitoring**: Memory usage, CPU usage, uptime tracking, and status indicators (green/yellow/red)
-- **Boot Status Detection**: WorldServer status changes from yellow (booting) to green (running) based on process start and initialization
-- **Graceful Shutdown**: WorldServer uses `server shutdown 1` for graceful shutdown to prevent data loss
-- **Auto-Clear Console**: Console automatically clears when servers are stopped
-- **Auto-Restart on Crash**: Automatically restart crashed servers (configurable max attempts and delay)
-- **Crash Log Analysis**: Analyzes crash logs for error indicators and reports findings
+### Option 1: Download Release (Recommended)
+1. Go to the [Releases](../../releases) page
+2. Download the latest `AzerothCoreLauncher.exe`
+3. Place it in any folder on your computer
+4. Run the executable (Administrator privileges required)
 
-### Console
-- **Split Console View**: Separate Auth and World console panes with resizable splitter
-- **Real-Time Output**: AuthServer uses log file watching, WorldServer uses direct process output streams
-- **Console Line Limiting**: Configurable line limit to prevent performance issues
-- **Command Input**: Send commands to Auth or World server directly from the console
-- **Clear Console Button**: Manually clear console output
-- **Clean Output**: No prefix spam, improved empty line filtering
-
-### Player Management
-- **Online Players**: View all currently online players
-- **Player Search**: Search for specific players by name
-- **GM Actions**: Execute GM commands (Kick, Ban, Mute, GM On, GM Off)
-
-### Events
-- **Scheduled Events**: Create scheduled commands, restarts, and announcements
-- **Event Types**: 
-  - Command: Send any console command to Auth or World server
-  - Restart: Restart Auth or World server
-  - Announcement: Send server announcement to World server
-- **Event Persistence**: Events are saved and persist across launcher restarts
-- **Daily Recurring**: Set events to repeat daily at the same time
-- **Event Management**: Add, delete, and save events with a clean grid interface
-
-### Server Health
-- **Health Monitoring**: Real-time monitoring of server memory and CPU usage
-- **Graphical Display**: Visual graphs showing historical health data
-- **Time Range Selection**: View data for 1 min, 5 min, 30 min, 1h, or 24h
-- **Fast Updates**: Health data updates every 5 seconds for real-time monitoring
-- **Memory Alerts**: Configurable memory threshold for alerts
-- **CPU Tracking**: World Server CPU usage graph for performance monitoring
-
-### Config Editor
-- **Config Loading**: Load worldserver.conf or authserver.conf
-- **Config Editing**: Edit configuration files in the built-in text editor
-- **Save & Apply**: Save changes and restart servers to apply new config
-
-### Settings
-- **Server Paths**: Configure AuthServer and WorldServer executable paths
-- **Database Configuration**: Set MySQL connection settings
-- **Config Directory**: Configure config file location
-- **Console Line Limit**: Adjust console output line limit
-- **Server Stability**: Configure auto-restart on crash, max restart attempts, restart delay, and crash log analysis
-- **Health Monitoring**: Enable/disable health monitoring, set memory alert threshold, configure health check interval
+### Option 2: Build from Source
+```bash
+git clone <repository-url>
+cd Wow Console
+dotnet build -c Release
+```
+The executable will be in `bin\Release\net6.0-windows\AzerothCoreLauncher.exe`
 
 ## Requirements
 
-- .NET 6.0 SDK
 - Windows 10/11
-- AzerothCore server installed at configured server directory
-- Administrator privileges (automatically requested via UAC on launch)
+- .NET 6.0 Runtime (included in release build)
+- Administrator privileges (requested on launch)
+- AzerothCore server installed on your system
+- MySQL server running
 
-## Configuration
+## Quick Start
 
-Before running the launcher, configure the settings in the Settings tab:
-- Server directory path
-- AuthServer and WorldServer executable names
-- MySQL connection settings (host, port, database, user, password)
-- Config directory path
-- Console line limit
+1. **Launch** the application (run as Administrator)
+2. **Configure** server paths in the Settings tab:
+   - Server directory (where authserver.exe and worldserver.exe are located)
+   - MySQL connection settings
+   - Config directory location
+3. **Save** your settings
+4. **Start** servers using the Start buttons in the Server Status tab
 
-Settings are automatically saved to `%AppData%\AzerothCoreLauncher\settings.json`
+## Features
 
-## Building
+### Server Status & Control
+- **Start/Stop Control**: Launch and stop AuthServer and WorldServer with one click
+- **Real-Time Status**: Visual status lights (green=running, yellow=booting, red=stopped/error)
+- **Auto-Restart**: Automatically restart crashed servers with configurable limits
+- **Graceful Shutdown**: Clean server shutdown to prevent data corruption
+- **Process Detection**: Automatically detects and attaches to already-running server processes
 
-```bash
-cd "C:\Users\benko\OneDrive\Desktop\Wow Console"
-dotnet build -c Release
-```
-
-## Running
-
-```bash
-dotnet run
-```
-
-Or run the compiled executable:
-```bash
-cd "C:\Users\benko\OneDrive\Desktop\Wow Console\bin\Release\net6.0-windows"
-AzerothCoreLauncher.exe
-```
-
-**Important**: Run the launcher as Administrator to start server processes.
-
-## Usage
-
-### Starting the Server
-1. Click "Start AuthServer" to start the authentication server
-2. Click "Start WorldServer" to start the game server
-3. Monitor status lights (yellow = booting, green = running, red = stopped/error)
-4. View console output in the Console tab (Auth and World panes)
-
-### Console Commands
-1. Select target server (Auth or World) from the dropdown
-2. Type command in the command input box
-3. Press Enter or click "Send"
-4. Commands are sent directly to the selected server process
+### Console Management
+- **Dual Console View**: Separate Auth and World console panes
+- **Command Input**: Send commands directly to either server
+- **Real-Time Output**: Live console output with automatic scrolling
+- **Console Clearing**: Manual or automatic console clearing
 
 ### Player Management
-1. Go to the Players tab
-2. Click "Refresh" to load online players
-3. Use the search box to find specific players
-4. Select a player from the list
-5. Select a GM action from the dropdown (Kick, Ban, Mute, GM On, GM Off)
-6. Click "Execute" to perform the action
+- **Online Players**: View all currently online players
+- **Player Search**: Find specific players quickly
+- **GM Actions**: Execute Kick, Ban, Mute, GM On/Off commands
+- **Player Details**: View inventory, skills, and character information
 
-### Events
-1. Go to the Events tab
-2. Fill in event details:
-   - Event Name: Descriptive name for the event
-   - Type: Command, Restart, or Announcement
-   - Target: World or Auth server
-   - Time: Execution time in HH:mm format
-   - Command: Console command or announcement text
-   - Repeat Daily: Check to repeat event daily
-3. Click "Add" to add the event to the list
-4. Click "Save" to persist all events
-5. Events execute automatically at the scheduled time
+### Events & Automation
+- **Scheduled Events**: Create scheduled commands, restarts, and announcements
+- **Event Types**:
+  - Command: Send any console command
+  - Restart: Restart Auth or World server
+  - Announcement: Send server-wide announcements
+- **Recurrence**: Daily, weekly, monthly, or custom recurrence patterns
+- **Event Chaining**: Chain multiple events with delays
+- **Conditional Execution**: Execute events based on player count or time windows
 
-### Config Editing
-1. Go to the Config tab
-2. Select worldserver.conf or authserver.conf from the dropdown
-3. Click "Load" to load the config file
-4. Edit the config in the text editor
-5. Click "Save" to save changes
-6. Click "Apply" to save and restart the server
+### Account Management
+- **Account Creation**: Create new accounts
+- **Account Editing**: Modify account details
+- **Account Bans**: Ban/unban accounts
+- **Ban History**: View ban history for accounts
+- **IP Bans**: Manage IP bans
+
+### Server Analytics
+- **Performance Metrics**: CPU and memory usage graphs
+- **Historical Data**: View performance over time (1 min to 24 hours)
+- **Peak Hours**: Identify peak usage times
+- **Health Monitoring**: Real-time server health checks with configurable thresholds
+
+### Communication
+- **Announcements**: Send server-wide announcements
+- **Quick Templates**: Pre-defined announcement templates
+- **Broadcast History**: Track announcement history
+
+### Notifications
+- **System Tray Icon**: Minimize to system tray with status indicator
+- **Crash Alerts**: Popup alerts when servers crash
+- **Alert Sounds**: Audio notification on critical events
+- **Notification History**: Track all notifications
+- **Event Notifications**: Get notified when scheduled events execute
+
+### Economy Management
+- **Auction House**: View and manage auction house data
+- **Mail System**: Send and view player mail
+- **Currency Tracking**: Monitor player currency
+
+### Skill Database
+- **Skill Line Viewer**: Browse skill lines and abilities
+- **Search**: Search for specific skills
+- **Data Management**: Load and manage skill data from JSON files
+
+### Config Editor
+- **Config Loading**: Load and edit worldserver.conf and authserver.conf
+- **Search**: Quickly find config settings
+- **Save & Apply**: Save changes and restart servers to apply
 
 ### Settings
-1. Go to the Settings tab
-2. Configure server paths, database settings, and other options
-3. Click "Save" to persist settings
-4. Restart the launcher to apply new paths
+- **Server Configuration**: Paths, executables, MySQL settings
+- **Server Stability**: Auto-restart, crash analysis, health monitoring
+- **Database Backup**: Automatic database backups before restarts
+- **Console Settings**: Line limits, auto-scroll
+
+### Logging
+- **Centralized Logging**: All logs consolidated to Debug.log
+- **Log Viewer**: View and filter logs
+- **Export**: Export logs for analysis
+
+## Feature Synopsis
+
+**Server Management**: Start/stop servers, auto-restart on crash, graceful shutdown, process detection
+
+**Monitoring**: Real-time status lights, CPU/memory graphs, health checks, performance metrics
+
+**Player Tools**: Online player list, search, GM actions (kick, ban, mute), detailed player info
+
+**Automation**: Scheduled events (commands, restarts, announcements), recurrence patterns, event chaining, conditional execution
+
+**Account Management**: Create/edit accounts, account/IP bans, ban history
+
+**Analytics**: Historical performance data, peak hours, customizable time ranges
+
+**Communication**: Server announcements, quick templates, broadcast history
+
+**Notifications**: System tray icon, crash alerts, alert sounds, notification history
+
+**Economy**: Auction house viewer, mail system, currency tracking
+
+**Skill Database**: Skill line browser, ability viewer, JSON data management
+
+**Config Editor**: Built-in config file editor with search
+
+**Logging**: Centralized debug logging, log viewer with filtering and export
 
 ## Troubleshooting
 
 **Server won't start:**
-- Ensure the launcher is running as Administrator
-- Check server paths in Settings tab
-- Verify server executables exist at the specified locations
+- Ensure running as Administrator
+- Verify server paths in Settings
+- Check server executables exist
 
 **Can't connect to database:**
-- Verify database connection settings in Settings tab
+- Verify MySQL connection settings
 - Ensure MySQL server is running
 - Check database credentials
 
-**Config file not found:**
-- Verify config directory path in Settings tab
-- Ensure config files exist in the configs directory
-
 **No console output:**
-- Console uses log file watching - ensure log files are being written
-- Check logs directory exists: `ServerDirectory\logs\`
-- Verify Auth.log and World.log files are present
+- Console uses log file watching for AuthServer
+- Ensure log files are being written
+- Check logs directory exists
 
 **Events not executing:**
-- Ensure events are saved (click "Save" button)
-- Check event time format is HH:mm (e.g., 12:00, 00:00)
-- Verify target server is running when event executes
-- Check console for event execution messages
+- Ensure events are saved (click Save button)
+- Verify time format is HH:mm (e.g., 12:00)
+- Check target server is running
 
 ## License
 

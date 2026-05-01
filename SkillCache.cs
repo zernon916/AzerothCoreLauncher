@@ -1,20 +1,29 @@
-using MySql.Data.MySqlClient;
 using System;
 using System.Collections.Generic;
-using System.Data;
-using System.Windows;
+using System.IO;
+using System.Linq;
+using Newtonsoft.Json;
 
 namespace AzerothCoreLauncher
 {
     public class SkillCache
     {
-        private readonly string _worldConnectionString;
+        private readonly string _jsonPath;
         private readonly Dictionary<int, SkillData> _cache;
         private bool _loaded;
 
-        public SkillCache(string host, string port, string worldDatabase, string user, string password)
+        public SkillCache(string jsonPath = "")
         {
-            _worldConnectionString = $"Server={host};Port={port};Database={worldDatabase};User={user};Password={password};";
+            if (string.IsNullOrEmpty(jsonPath))
+            {
+                var basePath = AppDomain.CurrentDomain.BaseDirectory;
+                _jsonPath = System.IO.Path.Combine(basePath, "data", "SkillLine.json");
+            }
+            else
+            {
+                _jsonPath = jsonPath;
+            }
+            
             _cache = new Dictionary<int, SkillData>();
             _loaded = false;
         }
@@ -23,28 +32,37 @@ namespace AzerothCoreLauncher
         {
             try
             {
-                using var connection = new MySqlConnection(_worldConnectionString);
-                connection.Open();
+                if (!File.Exists(_jsonPath))
+                {
+                    System.Diagnostics.Debug.WriteLine($"SkillCache: JSON file not found at {_jsonPath}");
+                    return false;
+                }
 
-                string query = "SELECT ID, DisplayName_Lang_enUS FROM skillline_dbc";
-                using var command = new MySqlCommand(query, connection);
-                using var reader = command.ExecuteReader();
+                var json = File.ReadAllText(_jsonPath);
+                var skillLines = JsonConvert.DeserializeObject<List<SkillLine>>(json) ?? new List<SkillLine>();
 
                 _cache.Clear();
-                while (reader.Read())
+                foreach (var skillLine in skillLines)
                 {
-                    int id = reader.GetInt32("ID");
-                    string name = reader.IsDBNull("DisplayName_Lang_enUS") ? "Unknown" : reader.GetString("DisplayName_Lang_enUS");
-
-                    _cache[id] = new SkillData
+                    string name = "Unknown";
+                    if (skillLine.DisplayName != null && skillLine.DisplayName.ContainsKey("enUS"))
                     {
-                        Id = id,
+                        name = skillLine.DisplayName["enUS"];
+                    }
+                    else if (skillLine.DisplayName != null && skillLine.DisplayName.Count > 0)
+                    {
+                        name = skillLine.DisplayName.Values.First();
+                    }
+
+                    _cache[skillLine.ID] = new SkillData
+                    {
+                        Id = skillLine.ID,
                         Name = name
                     };
                 }
 
                 _loaded = true;
-                System.Diagnostics.Debug.WriteLine($"SkillCache: Loaded {_cache.Count} skills from skillline_dbc");
+                System.Diagnostics.Debug.WriteLine($"SkillCache: Loaded {_cache.Count} skills from JSON");
                 return true;
             }
             catch (Exception ex)

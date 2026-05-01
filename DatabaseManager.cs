@@ -1868,6 +1868,118 @@ namespace AzerothCoreLauncher
         public int ItemCount { get; set; }
     }
     
+    public class ConfigParser
+    {
+        public static List<ConfigSection> ParseConfigFile(string filePath)
+        {
+            var sections = new List<ConfigSection>();
+            var currentSection = new ConfigSection { Name = "General" };
+            var lines = System.IO.File.ReadAllLines(filePath);
+            
+            string lastComment = string.Empty;
+            
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var line = lines[i].Trim();
+                
+                // Skip empty lines
+                if (string.IsNullOrWhiteSpace(line))
+                    continue;
+                
+                // Track comments as potential descriptions
+                if (line.StartsWith("#") || line.StartsWith("//"))
+                {
+                    lastComment = line.TrimStart('#', '/').Trim();
+                    continue;
+                }
+                
+                // Section headers
+                if (line.StartsWith("[") && line.EndsWith("]"))
+                {
+                    if (currentSection.Settings.Any())
+                    {
+                        sections.Add(currentSection);
+                    }
+                    currentSection = new ConfigSection { Name = line.Trim('[', ']') };
+                    lastComment = string.Empty;
+                    continue;
+                }
+                
+                // Parse key = value
+                if (line.Contains("="))
+                {
+                    var parts = line.Split(new[] { '=' }, 2);
+                    if (parts.Length == 2)
+                    {
+                        var key = parts[0].Trim();
+                        var value = parts[1].Trim();
+                        
+                        // Check if it's standard format
+                        bool isStandard = !value.Contains(",") && !value.Contains("\"") && !value.Contains("'");
+                        
+                        currentSection.Settings.Add(new ConfigSetting
+                        {
+                            Key = key,
+                            Value = value,
+                            Description = string.IsNullOrEmpty(lastComment) ? "No description available" : lastComment,
+                            OriginalLine = lines[i],
+                            LineNumber = i,
+                            IsStandardFormat = isStandard
+                        });
+                        
+                        lastComment = string.Empty;
+                    }
+                }
+                else
+                {
+                    // Non-standard format, add as text
+                    currentSection.Settings.Add(new ConfigSetting
+                    {
+                        Key = line,
+                        Value = line,
+                        Description = string.IsNullOrEmpty(lastComment) ? "Non-standard config line" : lastComment,
+                        OriginalLine = lines[i],
+                        LineNumber = i,
+                        IsStandardFormat = false
+                    });
+                    
+                    lastComment = string.Empty;
+                }
+            }
+            
+            if (currentSection.Settings.Any())
+            {
+                sections.Add(currentSection);
+            }
+            
+            return sections;
+        }
+        
+        public static void SaveConfigFile(string filePath, List<ConfigSection> sections, string[] originalLines)
+        {
+            var newLines = (string[])originalLines.Clone();
+            
+            foreach (var section in sections)
+            {
+                foreach (var setting in section.Settings)
+                {
+                    if (setting.IsStandardFormat && setting.LineNumber < newLines.Length)
+                    {
+                        // Update the value while preserving the key and formatting
+                        var originalLine = newLines[setting.LineNumber];
+                        var parts = originalLine.Split(new[] { '=' }, 2);
+                        if (parts.Length == 2)
+                        {
+                            newLines[setting.LineNumber] = $"{parts[0].Trim()}= {setting.Value}";
+                        }
+                    }
+                }
+            }
+            
+            System.IO.File.WriteAllLines(filePath, newLines);
+        }
+    }
+    
     public class PlayerCountHistory
     {
         public DateTime Timestamp { get; set; }

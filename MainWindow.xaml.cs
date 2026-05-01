@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Principal;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -17,19 +19,29 @@ namespace AzerothCoreLauncher
 {
     public partial class MainWindow : Window
     {
+        private DatabaseManager? _dbManager;
+        private AppSettings _settings;
+        private ConfigManager? _configManager;
+        private List<ConfigSection> _currentConfigSections = new List<ConfigSection>();
+        private string[] _originalConfigLines = Array.Empty<string>();
+        private string _currentConfigPath = string.Empty;
+        private bool _hasUnsavedChanges = false;
+        
+        private List<SkillLine> _skillLines = new List<SkillLine>();
+        private List<SkillLineAbility> _skillLineAbilities = new List<SkillLineAbility>();
+        private string _selectedSkillFile = "SkillLine";
+        
         private Process? _authProcess;
         private Process? _worldProcess;
+        private bool _isServerRunning = false;
         
-        private ConfigManager? _configManager;
-        private AppSettings _settings = new AppSettings();
-        private DatabaseManager? _dbManager;
-        private ItemCache? _itemCache;
-        private SkillCache? _skillCache;
+        private System.Windows.Threading.DispatcherTimer _playerCountTimer;
+        private System.Windows.Threading.DispatcherTimer _healthCheckTimer;
+        private DispatcherTimer _restartTimer;
         
-        private DispatcherTimer? _restartTimer;
-        
-        private DateTime _authStartTime;
-        private DateTime _worldStartTime;
+        private readonly Dictionary<string, List<ScheduledEvent>> _eventsByDay = new Dictionary<string, List<ScheduledEvent>>();
+        private List<PlayerCountHistory> _playerCountHistory = new List<PlayerCountHistory>();
+        private DateTime _lastHealthCheckTime = DateTime.MinValue;
         private System.IO.FileSystemWatcher? _authLogWatcher;
         private long _authLogLastPosition;
         private System.IO.FileSystemWatcher? _worldLogWatcher;
@@ -39,52 +51,83 @@ namespace AzerothCoreLauncher
         private int _authCrashCount;
         private int _worldCrashCount;
         
+        private DateTime _authStartTime;
+        private DateTime _worldStartTime;
+        
+        // Cache for player details
+        private ItemCache? _itemCache;
+        private SkillCache? _skillCache;
+        
         // Analytics storage
-        private System.Collections.Generic.List<PlayerCountHistory> _playerCountHistory = new();
         private System.Collections.Generic.List<PeakHour> _peakHours = new();
         private System.Collections.Generic.List<PerformanceMetric> _performanceMetrics = new();
         
         // Communication storage
         private System.Collections.Generic.List<BroadcastMessage> _broadcastHistory = new();
+        private System.Collections.ObjectModel.ObservableCollection<Notification> _notifications = new();
         private DispatcherTimer? _analyticsRefreshTimer;
+        
+        // Tray Icon
+        private System.Windows.Forms.NotifyIcon? _trayIcon;
         
         public MainWindow()
         {
             try
             {
+                var basePath = AppDomain.CurrentDomain.BaseDirectory;
+                var logPath = System.IO.Path.Combine(basePath, "data", "Debug.log");
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(basePath, "data"));
+                System.IO.File.WriteAllText(logPath, "MainWindow constructor started\n");
+                
                 LogDebug("MainWindow constructor started");
                 
                 InitializeComponent();
+                InitializeTimers();
+                
+                DgNotifications.ItemsSource = _notifications;
+                
                 LogDebug("InitializeComponent completed");
+                System.IO.File.AppendAllText(logPath, "InitializeComponent completed\n");
                 
                 PlayerList.ItemsSource = new ObservableCollection<PlayerInfo>();
                 EventList.ItemsSource = new ObservableCollection<ScheduledEvent>();
                 
                 LogDebug("Collections initialized");
+                System.IO.File.AppendAllText(logPath, "Collections initialized\n");
                 
                 CheckAdminPrivileges();
                 LogDebug("Admin privileges checked");
+                System.IO.File.AppendAllText(logPath, "Admin privileges checked\n");
                 
                 _settings = AppSettings.Load();
                 LogDebug("Settings loaded");
-                
-                LoadSettingsToUI();
-                LogDebug("Settings loaded to UI");
-                
-                LoadEvents();
-                LogDebug("Events loaded");
+                System.IO.File.AppendAllText(logPath, "Settings loaded\n");
                 
                 InitializeManagers();
                 LogDebug("Managers initialized");
+                System.IO.File.AppendAllText(logPath, "Managers initialized\n");
+                
+                LoadSettingsToUI();
+                LogDebug("Settings loaded to UI");
+                System.IO.File.AppendAllText(logPath, "Settings loaded to UI\n");
                 
                 InitializeItemCache();
                 LogDebug("Item cache initialized");
+                System.IO.File.AppendAllText(logPath, "Item cache initialized\n");
                 
                 InitializeSkillCache();
                 LogDebug("Skill cache initialized");
+                System.IO.File.AppendAllText(logPath, "Skill cache initialized\n");
                 
-                InitializeTimers();
-                LogDebug("Timers initialized");
+                InitializeSkillData();
+                LogDebug("Skill data initialized");
+                System.IO.File.AppendAllText(logPath, "Skill data initialized\n");
+                
+                // Initialize tray icon after settings are loaded
+                InitializeTrayIcon();
+                
+                // Check for already running server processes
+                DetectRunningServers();
                 
                 // Kill existing server processes if setting is enabled
                 if (_settings.KillExistingServersOnStartup)
@@ -93,11 +136,105 @@ namespace AzerothCoreLauncher
                 }
                 
                 LogDebug("MainWindow constructor completed successfully");
+                System.IO.File.AppendAllText(logPath, "MainWindow constructor completed successfully\n");
             }
             catch (Exception ex)
             {
-                LogDebug($"ERROR in MainWindow constructor: {ex.Message}\n{ex.StackTrace}");
-                MessageBox.Show($"Error initializing launcher: {ex.Message}\n\nCheck debug log for details.", "Startup Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                var basePath = AppDomain.CurrentDomain.BaseDirectory;
+                var logPath = System.IO.Path.Combine(basePath, "data", "Debug.log");
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(basePath, "data"));
+                System.IO.File.AppendAllText(logPath, $"Constructor exception: {ex.Message}\n");
+                System.IO.File.AppendAllText(logPath, $"Stack trace: {ex.StackTrace}\n");
+                MessageBox.Show($"Failed to initialize MainWindow: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void InitializeSkillData()
+        {
+            try
+            {
+                var basePath = AppDomain.CurrentDomain.BaseDirectory;
+                var dataPath = System.IO.Path.Combine(basePath, "data");
+                
+                if (!Directory.Exists(dataPath))
+                    Directory.CreateDirectory(dataPath);
+                
+                var skillLineJsonPath = System.IO.Path.Combine(dataPath, "SkillLine.json");
+                var skillLineAbilityJsonPath = System.IO.Path.Combine(dataPath, "SkillLineAbility.json");
+                
+                var logPath = System.IO.Path.Combine(dataPath, "Debug.log");
+                File.WriteAllText(logPath, $"Initializing skill data\n");
+                File.AppendAllText(logPath, $"Base path: {basePath}\n");
+                File.AppendAllText(logPath, $"Data path: {dataPath}\n");
+                
+                // Load SkillLine data
+                if (File.Exists(skillLineJsonPath))
+                {
+                    _skillLines = SkillLineParser.LoadSkillLineFromJson(skillLineJsonPath);
+                    File.AppendAllText(logPath, $"Loaded {_skillLines.Count} SkillLine from JSON\n");
+                }
+                else
+                {
+                    File.AppendAllText(logPath, $"SkillLine.json not found, attempting SQL conversion\n");
+                    // Try to convert from SQL if JSON doesn't exist
+                    var skillLineSqlPath = System.IO.Path.Combine(dataPath, "SkillLine.sql");
+                    File.AppendAllText(logPath, $"Looking for SQL at: {skillLineSqlPath}\n");
+                    File.AppendAllText(logPath, $"SQL exists: {File.Exists(skillLineSqlPath)}\n");
+                    
+                    if (File.Exists(skillLineSqlPath))
+                    {
+                        File.AppendAllText(logPath, $"Starting SQL parsing...\n");
+                        _skillLines = SkillLineParser.ParseSkillLineSql(skillLineSqlPath);
+                        File.AppendAllText(logPath, $"Parsed {_skillLines.Count} SkillLine records\n");
+                        SkillLineParser.SaveSkillLineToJson(_skillLines, skillLineJsonPath);
+                        File.AppendAllText(logPath, $"Saved to JSON\n");
+                    }
+                    else
+                    {
+                        // Try base directory as fallback
+                        skillLineSqlPath = System.IO.Path.Combine(basePath, "SkillLine.sql");
+                        File.AppendAllText(logPath, $"Looking for SQL at base: {skillLineSqlPath}\n");
+                        File.AppendAllText(logPath, $"SQL exists: {File.Exists(skillLineSqlPath)}\n");
+                        if (File.Exists(skillLineSqlPath))
+                        {
+                            _skillLines = SkillLineParser.ParseSkillLineSql(skillLineSqlPath);
+                            SkillLineParser.SaveSkillLineToJson(_skillLines, skillLineJsonPath);
+                        }
+                    }
+                }
+                
+                // Load SkillLineAbility data
+                if (File.Exists(skillLineAbilityJsonPath))
+                {
+                    _skillLineAbilities = SkillLineAbilityParser.LoadSkillLineAbilityFromJson(skillLineAbilityJsonPath);
+                }
+                else
+                {
+                    // Try to convert from SQL if JSON doesn't exist
+                    var skillLineAbilitySqlPath = System.IO.Path.Combine(dataPath, "SkillLineAbility.sql");
+                    if (File.Exists(skillLineAbilitySqlPath))
+                    {
+                        _skillLineAbilities = SkillLineAbilityParser.ParseSkillLineAbilitySql(skillLineAbilitySqlPath);
+                        SkillLineAbilityParser.SaveSkillLineAbilityToJson(_skillLineAbilities, skillLineAbilityJsonPath);
+                    }
+                    else
+                    {
+                        // Try base directory as fallback
+                        skillLineAbilitySqlPath = System.IO.Path.Combine(basePath, "SkillLineAbility.sql");
+                        if (File.Exists(skillLineAbilitySqlPath))
+                        {
+                            _skillLineAbilities = SkillLineAbilityParser.ParseSkillLineAbilitySql(skillLineAbilitySqlPath);
+                            SkillLineAbilityParser.SaveSkillLineAbilityToJson(_skillLineAbilities, skillLineAbilityJsonPath);
+                        }
+                    }
+                }
+                
+                File.AppendAllText(logPath, $"Final counts: SkillLine={_skillLines.Count}, SkillLineAbility={_skillLineAbilities.Count}\n");
+            }
+            catch (Exception ex)
+            {
+                // Silently fail during initialization - skill data can be loaded later
+                LogDebug($"Failed to initialize skill data: {ex.Message}");
             }
         }
         
@@ -119,10 +256,15 @@ namespace AzerothCoreLauncher
         
         private void InitializeItemCache()
         {
-            var cachePath = System.IO.Path.Combine(
-                System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "",
-                "item_template.csv"
-            );
+            var basePath = AppDomain.CurrentDomain.BaseDirectory;
+            var dataPath = System.IO.Path.Combine(basePath, "data");
+            var cachePath = System.IO.Path.Combine(dataPath, "item_template.csv");
+            
+            // If not in data folder, try executable directory
+            if (!File.Exists(cachePath))
+            {
+                cachePath = System.IO.Path.Combine(basePath, "item_template.csv");
+            }
             
             _itemCache = new ItemCache(cachePath);
             
@@ -140,19 +282,11 @@ namespace AzerothCoreLauncher
         
         private void InitializeSkillCache()
         {
-            if (_settings == null) return;
-            
-            _skillCache = new SkillCache(
-                _settings.MySqlHost,
-                _settings.MySqlPort,
-                "acore_world",
-                _settings.MySqlUser,
-                _settings.MySqlPassword
-            );
+            _skillCache = new SkillCache();
             
             if (!_skillCache.Load())
             {
-                AppendToConsole("Failed to load skill cache from database.", "SYSTEM", true);
+                AppendToConsole("Failed to load skill cache from JSON file.", "SYSTEM", true);
             }
             else
             {
@@ -452,8 +586,12 @@ namespace AzerothCoreLauncher
                         // Send announcement command to world server
                         if (_worldProcess != null && !_worldProcess.HasExited)
                         {
-                            _worldProcess.StandardInput.WriteLine($"announce {evt.Command}");
-                            AppendToConsole($"> announce {evt.Command}", "WORLD");
+                            _worldProcess.StandardInput.WriteLine($"announce {evt.Message}");
+                            AppendToConsole($"> announce {evt.Message}", "WORLD");
+                        }
+                        else
+                        {
+                            AppendToConsole($"World Server is not running", "SYSTEM", true);
                         }
                         break;
                 }
@@ -866,6 +1004,12 @@ namespace AzerothCoreLauncher
                 AuthMemoryLarge.Text = "Memory: 0 MB";
                 AuthUptime.Text = "Uptime: 00:00:00";
                 
+                // Show crash alert if it was running unexpectedly
+                if (wasRunning)
+                {
+                    ShowCrashAlert("Auth");
+                }
+                
                 // Check if this was a crash (unexpected exit while running)
                 if (wasRunning && _settings.AutoRestartOnCrash && _authCrashCount < _settings.MaxAutoRestarts)
                 {
@@ -1025,6 +1169,12 @@ namespace AzerothCoreLauncher
                 WorldMemoryLarge.Text = "Memory: 0 MB";
                 WorldUptime.Text = "Uptime: 00:00:00";
                 
+                // Show crash alert if it was running unexpectedly
+                if (wasRunning)
+                {
+                    ShowCrashAlert("World");
+                }
+                
                 // Check if this was a crash (unexpected exit while running)
                 if (wasRunning && _settings.AutoRestartOnCrash && _worldCrashCount < _settings.MaxAutoRestarts)
                 {
@@ -1113,6 +1263,26 @@ namespace AzerothCoreLauncher
         private void AppendToConsole(string? text, string source, bool isError = false)
         {
             if (string.IsNullOrEmpty(text)) return;
+            
+            // Write to log file
+            try
+            {
+                var basePath = AppDomain.CurrentDomain.BaseDirectory;
+                var dataPath = System.IO.Path.Combine(basePath, "data");
+                var logPath = System.IO.Path.Combine(dataPath, "Console.log");
+                
+                if (!Directory.Exists(dataPath))
+                {
+                    Directory.CreateDirectory(dataPath);
+                }
+                
+                var logLine = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{source}] {text}";
+                File.AppendAllText(logPath, logLine + Environment.NewLine);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to write to console log: {ex.Message}");
+            }
             
             Dispatcher.Invoke(() =>
             {
@@ -1249,6 +1419,13 @@ namespace AzerothCoreLauncher
             {
                 try
                 {
+                    // Log for debugging
+                    AppendToConsole($"_itemCache is null: {_itemCache == null}", "SYSTEM");
+                    if (_itemCache != null)
+                    {
+                        AppendToConsole($"ItemCache count: {_itemCache.Count}", "SYSTEM");
+                    }
+                    
                     // Query database to get character GUID
                     var query = $"SELECT guid, account FROM characters WHERE name = '{player.Name}'";
                     var dataTable = _dbManager.ExecuteQuery(query);
@@ -1372,13 +1549,10 @@ namespace AzerothCoreLauncher
                 
                 var popup = new CreateAccountPopup(_dbManager, _worldProcess);
                 popup.Owner = this;
-                var result = popup.ShowDialog();
+                popup.Show();
                 
-                if (result == true)
-                {
-                    // Refresh account list
-                    BtnRefreshAccount_Click(sender, e);
-                }
+                // Refresh account list
+                BtnRefreshAccount_Click(sender, e);
             }
             catch (Exception ex)
             {
@@ -1430,7 +1604,7 @@ namespace AzerothCoreLauncher
                 
                 var popup = new AccountEditPopup(_dbManager, username, _worldProcess);
                 popup.Owner = this;
-                popup.ShowDialog();
+                popup.Show();
                 
                 // Refresh account list
                 BtnRefreshAccount_Click(sender, e);
@@ -1890,7 +2064,7 @@ namespace AzerothCoreLauncher
                 
                 var popup = new AccountEditPopup(_dbManager, username, _worldProcess);
                 popup.Owner = this;
-                popup.ShowDialog();
+                popup.Show();
             }
             catch (Exception ex)
             {
@@ -2192,7 +2366,7 @@ namespace AzerothCoreLauncher
                 // Show account popup
                 var popup = new AccountPopup(_dbManager, characterName, username, _worldProcess);
                 popup.Owner = this;
-                popup.ShowDialog();
+                popup.Show();
                 
                 AppendToConsole($"Opened account popup for character: {characterName}", "SYSTEM");
             }
@@ -2209,27 +2383,49 @@ namespace AzerothCoreLauncher
         
         private void BtnLoadConfig_Click(object sender, RoutedEventArgs e)
         {
-            if (_configManager == null) return;
-            
             try
             {
                 var configFile = CmbConfigFile.Text;
-                var configPath = configFile switch
+                string configPath = null;
+                
+                // Check if file is from modules directory (has "modules/" prefix)
+                if (configFile.StartsWith("modules/"))
                 {
-                    "worldserver.conf" => _settings.GetWorldServerConfigPath(),
-                    "authserver.conf" => _settings.GetAuthServerConfigPath(),
-                    _ => ""
-                };
+                    var fileName = configFile.Substring(8); // Remove "modules/" prefix
+                    var modulesPath = System.IO.Path.Combine(_settings.ConfigDirectory, "modules", fileName);
+                    if (System.IO.File.Exists(modulesPath))
+                    {
+                        configPath = modulesPath;
+                    }
+                }
+                else
+                {
+                    // Try main config directory
+                    var mainConfigPath = System.IO.Path.Combine(_settings.ConfigDirectory, configFile);
+                    if (System.IO.File.Exists(mainConfigPath))
+                    {
+                        configPath = mainConfigPath;
+                    }
+                }
                 
-                if (string.IsNullOrEmpty(configPath)) return;
+                if (string.IsNullOrEmpty(configPath) || !System.IO.File.Exists(configPath))
+                {
+                    MessageBox.Show($"Config file not found: {configFile}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
                 
-                _configManager = new ConfigManager(configPath);
-                _configManager.LoadConfig();
+                _currentConfigPath = configPath;
+                _originalConfigLines = System.IO.File.ReadAllLines(configPath);
+                _currentConfigSections = ConfigParser.ParseConfigFile(configPath);
+                _hasUnsavedChanges = false;
                 
-                ConfigEditor.Document.Blocks.Clear();
-                ConfigEditor.AppendText(_configManager.GetFullConfigText());
+                // Update the title to show which config is being edited (remove modules/ prefix if present)
+                var titleText = configFile.StartsWith("modules/") ? configFile.Substring(8) : configFile;
+                CurrentConfigFileTitle.Text = titleText;
                 
-                AppendToConsole($"Loaded config: {configFile}", "CONFIG");
+                BuildConfigUI(_currentConfigSections);
+                
+                AppendToConsole($"Loaded config: {configFile} from {configPath}", "CONFIG");
             }
             catch (Exception ex)
             {
@@ -2237,18 +2433,241 @@ namespace AzerothCoreLauncher
             }
         }
         
+        private void BuildConfigUI(List<ConfigSection> sections)
+        {
+            ConfigSectionsPanel.Children.Clear();
+            
+            bool isFirstSection = true;
+            
+            foreach (var section in sections)
+            {
+                // Skip section header for the first section (filename is already the title)
+                if (!isFirstSection)
+                {
+                    // Section header
+                    var sectionHeader = new Border
+                    {
+                        Background = new SolidColorBrush(Color.FromRgb(60, 60, 60)),
+                        Padding = new Thickness(10, 5, 10, 5),
+                        Margin = new Thickness(0, 10, 0, 5)
+                    };
+                    
+                    var headerText = new TextBlock
+                    {
+                        Text = section.Name,
+                        FontSize = 14,
+                        FontWeight = FontWeights.Bold,
+                        Foreground = Brushes.White
+                    };
+                    
+                    sectionHeader.Child = headerText;
+                    ConfigSectionsPanel.Children.Add(sectionHeader);
+                }
+                else
+                {
+                    isFirstSection = false;
+                }
+                
+                // Settings
+                foreach (var setting in section.Settings)
+                {
+                    var settingPanel = new Border
+                    {
+                        Background = new SolidColorBrush(Color.FromRgb(40, 40, 40)),
+                        Padding = new Thickness(10, 10, 10, 10),
+                        Margin = new Thickness(0, 0, 0, 5),
+                        Tag = setting
+                    };
+                    
+                    var stackPanel = new StackPanel();
+                    
+                    // Description
+                    if (!string.IsNullOrEmpty(setting.Description))
+                    {
+                        var descriptionText = new TextBlock
+                        {
+                            Text = setting.Description,
+                            FontSize = 11,
+                            Foreground = Brushes.LightGray,
+                            Margin = new Thickness(0, 0, 0, 5),
+                            TextWrapping = TextWrapping.Wrap
+                        };
+                        stackPanel.Children.Add(descriptionText);
+                    }
+                    
+                    // Key and value row
+                    var keyValuePanel = new Grid();
+                    keyValuePanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    keyValuePanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    keyValuePanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    
+                    // Key (non-editable)
+                    var keyText = new TextBlock
+                    {
+                        Text = setting.Key,
+                        FontSize = 12,
+                        FontWeight = FontWeights.Bold,
+                        Foreground = Brushes.White,
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                    Grid.SetColumn(keyText, 0);
+                    
+                    // Equals sign
+                    var equalsText = new TextBlock
+                    {
+                        Text = "=",
+                        FontSize = 12,
+                        Foreground = Brushes.LightGray,
+                        Margin = new Thickness(10, 0, 10, 0),
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                    Grid.SetColumn(equalsText, 1);
+                    
+                    // Value (editable)
+                    TextBox valueBox;
+                    if (setting.IsStandardFormat)
+                    {
+                        valueBox = new TextBox
+                        {
+                            Text = setting.Value,
+                            FontSize = 12,
+                            Foreground = Brushes.Black,
+                            Background = Brushes.White,
+                            Padding = new Thickness(5),
+                            Tag = setting
+                        };
+                        valueBox.TextChanged += ConfigValue_TextChanged;
+                    }
+                    else
+                    {
+                        valueBox = new TextBox
+                        {
+                            Text = setting.Value,
+                            FontSize = 12,
+                            Foreground = Brushes.Gray,
+                            Background = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
+                            IsReadOnly = true,
+                            Padding = new Thickness(5),
+                            ToolTip = "Non-standard format - use raw text editor to edit"
+                        };
+                    }
+                    Grid.SetColumn(valueBox, 2);
+                    
+                    keyValuePanel.Children.Add(keyText);
+                    keyValuePanel.Children.Add(equalsText);
+                    keyValuePanel.Children.Add(valueBox);
+                    
+                    stackPanel.Children.Add(keyValuePanel);
+                    settingPanel.Child = stackPanel;
+                    ConfigSectionsPanel.Children.Add(settingPanel);
+                }
+            }
+        }
+        
+        private void ConfigValue_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (sender is TextBox textBox && textBox.Tag is ConfigSetting setting)
+            {
+                setting.Value = textBox.Text;
+                _hasUnsavedChanges = true;
+            }
+        }
+        
+        private void ConfigSearch_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            var searchTerm = ConfigSearch.Text.ToLower();
+            
+            foreach (var child in ConfigSectionsPanel.Children.OfType<Border>())
+            {
+                if (child.Child is TextBlock header)
+                {
+                    // Section header
+                    var sectionName = header.Text.ToLower();
+                    child.Visibility = sectionName.Contains(searchTerm) ? Visibility.Visible : Visibility.Collapsed;
+                }
+                else if (child.Child is StackPanel stackPanel && stackPanel.Children.Count > 0)
+                {
+                    // Setting panel
+                    if (stackPanel.Children[1] is Grid grid && grid.Children.Count >= 3)
+                    {
+                        var keyText = grid.Children[0] as TextBlock;
+                        var descriptionText = stackPanel.Children[0] as TextBlock;
+                        
+                        bool matches = false;
+                        if (keyText != null && keyText.Text.ToLower().Contains(searchTerm))
+                            matches = true;
+                        if (descriptionText != null && descriptionText.Text.ToLower().Contains(searchTerm))
+                            matches = true;
+                        
+                        child.Visibility = matches ? Visibility.Visible : Visibility.Collapsed;
+                    }
+                }
+            }
+        }
+        
+        private void PopulateConfigFiles()
+        {
+            try
+            {
+                CmbConfigFile.Items.Clear();
+                
+                var configFiles = new List<string>();
+                
+                // Add .conf files from main config directory
+                if (System.IO.Directory.Exists(_settings.ConfigDirectory))
+                {
+                    var mainConfigs = System.IO.Directory.GetFiles(_settings.ConfigDirectory, "*.conf")
+                        .Select(System.IO.Path.GetFileName)
+                        .ToList();
+                    configFiles.AddRange(mainConfigs);
+                }
+                
+                // Add .conf files from modules directory
+                var modulesDir = System.IO.Path.Combine(_settings.ConfigDirectory, "modules");
+                if (System.IO.Directory.Exists(modulesDir))
+                {
+                    var moduleConfigs = System.IO.Directory.GetFiles(modulesDir, "*.conf")
+                        .Select(f => $"modules/{System.IO.Path.GetFileName(f)}")
+                        .ToList();
+                    configFiles.AddRange(moduleConfigs);
+                }
+                
+                // Sort and add to ComboBox
+                foreach (var file in configFiles.OrderBy(f => f))
+                {
+                    CmbConfigFile.Items.Add(file);
+                }
+                
+                if (CmbConfigFile.Items.Count > 0)
+                {
+                    CmbConfigFile.SelectedIndex = 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendToConsole($"Failed to populate config files: {ex.Message}", "ERROR");
+            }
+        }
+        
+        private void ConfigTab_Selected(object sender, RoutedEventArgs e)
+        {
+            PopulateConfigFiles();
+        }
+        
         private void BtnSaveConfig_Click(object sender, RoutedEventArgs e)
         {
-            if (_configManager == null) return;
+            if (string.IsNullOrEmpty(_currentConfigPath))
+            {
+                MessageBox.Show("No config file loaded", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
             
             try
             {
-                var text = new TextRange(ConfigEditor.Document.ContentStart, ConfigEditor.Document.ContentEnd).Text;
-                _configManager.SetFullConfigText(text);
-                _configManager.SaveConfig();
-                
-                AppendToConsole("Config saved successfully", "CONFIG");
+                ConfigParser.SaveConfigFile(_currentConfigPath, _currentConfigSections, _originalConfigLines);
+                _hasUnsavedChanges = false;
                 MessageBox.Show("Config saved successfully", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                AppendToConsole($"Config saved: {_currentConfigPath}", "CONFIG");
             }
             catch (Exception ex)
             {
@@ -2256,53 +2675,395 @@ namespace AzerothCoreLauncher
             }
         }
         
-        private void BtnApplyConfig_Click(object sender, RoutedEventArgs e)
+        private void BtnCloseConfig_Click(object sender, RoutedEventArgs e)
         {
-            // Save first, then restart server to apply changes
-            BtnSaveConfig_Click(sender, e);
-            
-            if (_worldProcess != null && !_worldProcess.HasExited)
+            if (_hasUnsavedChanges)
             {
-                var result = MessageBox.Show("Restart WorldServer to apply config changes?", "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                var result = MessageBox.Show("You have unsaved changes. Do you want to save them before closing?", "Unsaved Changes", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+                
                 if (result == MessageBoxResult.Yes)
                 {
-                    PerformBackupBeforeRestart();
-                    BtnStopWorld_Click(sender, e);
-                    System.Threading.Thread.Sleep(2000);
-                    BtnStartWorld_Click(sender, e);
+                    BtnSaveConfig_Click(sender, e);
+                    // Only close if save was successful (no exception thrown)
+                    if (!_hasUnsavedChanges)
+                    {
+                        ClearConfigEditor();
+                    }
                 }
+                else if (result == MessageBoxResult.No)
+                {
+                    ClearConfigEditor();
+                }
+                // If Cancel, do nothing
             }
             else
             {
-                MessageBox.Show("WorldServer is not running. Start it to apply config changes.", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
+                ClearConfigEditor();
             }
         }
         
-        private void BtnFindConfig_Click(object sender, RoutedEventArgs e)
+        private void ClearConfigEditor()
         {
-            if (_configManager == null) return;
-            
+            ConfigSectionsPanel.Children.Clear();
+            CurrentConfigFileTitle.Text = "No config loaded";
+            _currentConfigPath = string.Empty;
+            _currentConfigSections = new List<ConfigSection>();
+            _originalConfigLines = Array.Empty<string>();
+            _hasUnsavedChanges = false;
+        }
+        
+        private void BtnRefreshLogs_Click(object sender, RoutedEventArgs e)
+        {
+            LoadLogs();
+        }
+        
+        private void BtnExportLogs_Click(object sender, RoutedEventArgs e)
+        {
             try
             {
-                var searchTerm = ConfigSearch.Text;
-                if (string.IsNullOrWhiteSpace(searchTerm)) return;
+                using var dialog = new System.Windows.Forms.SaveFileDialog();
+                dialog.Filter = "Text Files (*.txt)|*.txt|Log Files (*.log)|*.log|All Files (*.*)|*.*";
+                dialog.DefaultExt = ".log";
+                dialog.FileName = $"server_logs_{DateTime.Now:yyyyMMdd_HHmmss}.log";
                 
-                var results = _configManager.SearchConfig(searchTerm);
-                
-                var message = $"Found {results.Count} results:\n\n";
-                foreach (var result in results.Take(10))
+                if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
                 {
-                    message += $"[{result.Section}] {result.Key} = {result.Value}\n";
+                    System.IO.File.WriteAllText(dialog.FileName, LogViewer.Text);
+                    MessageBox.Show("Logs exported successfully", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                    AppendToConsole($"Logs exported to: {dialog.FileName}", "LOGGING");
                 }
-                
-                if (results.Count > 10)
-                    message += $"\n... and {results.Count - 10} more results";
-                
-                MessageBox.Show(message, "Search Results", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Failed to search config: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Failed to export logs: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void LoadLogs()
+        {
+            try
+            {
+                if (CmbLogType == null || LogViewer == null) return;
+                
+                var logType = CmbLogType.Text;
+                var logs = new List<string>();
+                
+                // Read from Auth console
+                if (AuthConsole != null)
+                {
+                    var authText = new TextRange(AuthConsole.Document.ContentStart, AuthConsole.Document.ContentEnd).Text;
+                    foreach (var line in authText.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        if (ShouldIncludeLine(line, logType))
+                            logs.Add($"[AUTH] {line}");
+                    }
+                }
+                
+                // Read from World console
+                if (WorldConsole != null)
+                {
+                    var worldText = new TextRange(WorldConsole.Document.ContentStart, WorldConsole.Document.ContentEnd).Text;
+                    foreach (var line in worldText.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        if (ShouldIncludeLine(line, logType))
+                            logs.Add($"[WORLD] {line}");
+                    }
+                }
+                
+                if (logs.Count == 0)
+                {
+                    LogViewer.Text = "No logs available. Start the servers to see logs.";
+                }
+                else
+                {
+                    LogViewer.Text = string.Join(Environment.NewLine, logs);
+                    
+                    if (ChkAutoScroll != null && ChkAutoScroll.IsChecked == true)
+                    {
+                        LogViewer.ScrollToEnd();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to load logs: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private bool ShouldIncludeLine(string line, string logType)
+        {
+            if (string.IsNullOrWhiteSpace(line)) return false;
+            
+            // Filter by log type
+            if (logType != "All Logs")
+            {
+                var lowerLine = line.ToLower();
+                if (logType == "Error" && !lowerLine.Contains("error")) return false;
+                if (logType == "Warning" && !lowerLine.Contains("warning")) return false;
+                if (logType == "Info" && (lowerLine.Contains("error") || lowerLine.Contains("warning"))) return false;
+            }
+            
+            return true;
+        }
+        
+        // SkillDB Tab Event Handlers
+        private void BtnReloadSkillData_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var basePath = AppDomain.CurrentDomain.BaseDirectory;
+                var dataPath = System.IO.Path.Combine(basePath, "data");
+                
+                var skillLineJsonPath = System.IO.Path.Combine(dataPath, "SkillLine.json");
+                var skillLineAbilityJsonPath = System.IO.Path.Combine(dataPath, "SkillLineAbility.json");
+                var skillLineSqlPath = System.IO.Path.Combine(dataPath, "SkillLine.sql");
+                var skillLineAbilitySqlPath = System.IO.Path.Combine(dataPath, "SkillLineAbility.sql");
+                
+                MessageBox.Show($"Reloading skill data from SQL files...", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
+                
+                // Delete existing JSON files to force re-conversion
+                if (File.Exists(skillLineJsonPath))
+                    File.Delete(skillLineJsonPath);
+                if (File.Exists(skillLineAbilityJsonPath))
+                    File.Delete(skillLineAbilityJsonPath);
+                
+                // Convert SkillLine
+                if (File.Exists(skillLineSqlPath))
+                {
+                    _skillLines = SkillLineParser.ParseSkillLineSql(skillLineSqlPath);
+                    SkillLineParser.SaveSkillLineToJson(_skillLines, skillLineJsonPath);
+                    MessageBox.Show($"Converted {_skillLines.Count} SkillLine records", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                else
+                {
+                    MessageBox.Show($"SkillLine.sql not found at: {skillLineSqlPath}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                
+                // Convert SkillLineAbility
+                if (File.Exists(skillLineAbilitySqlPath))
+                {
+                    _skillLineAbilities = SkillLineAbilityParser.ParseSkillLineAbilitySql(skillLineAbilitySqlPath);
+                    SkillLineAbilityParser.SaveSkillLineAbilityToJson(_skillLineAbilities, skillLineAbilityJsonPath);
+                    MessageBox.Show($"Converted {_skillLineAbilities.Count} SkillLineAbility records", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                else
+                {
+                    MessageBox.Show($"SkillLineAbility.sql not found at: {skillLineAbilitySqlPath}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                
+                // Reload current view
+                LoadSelectedSkillData();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to reload skill data: {ex.Message}\n\n{ex.StackTrace}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void SkillDBTab_Selected(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // Ensure skill data is loaded
+                if (_skillLines.Count == 0 && _skillLineAbilities.Count == 0)
+                {
+                    InitializeSkillData();
+                }
+                
+                // Select SkillLine by default
+                if (CmbSkillFile != null)
+                {
+                    CmbSkillFile.SelectedIndex = 0;
+                    LoadSelectedSkillData();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to load skill data: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void CmbSkillFile_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (CmbSkillFile.SelectedItem is ComboBoxItem selectedItem)
+            {
+                _selectedSkillFile = selectedItem.Tag?.ToString() ?? "SkillLine";
+                LoadSelectedSkillData();
+            }
+        }
+        
+        private void LoadSelectedSkillData()
+        {
+            try
+            {
+                if (_selectedSkillFile == "SkillLine")
+                {
+                    DgSkills.Columns.Clear();
+                    DgSkills.Columns.Add(new DataGridTextColumn { Header = "ID", Binding = new System.Windows.Data.Binding("ID"), Width = 50 });
+                    DgSkills.Columns.Add(new DataGridTextColumn { Header = "CategoryID", Binding = new System.Windows.Data.Binding("CategoryID"), Width = 80 });
+                    DgSkills.Columns.Add(new DataGridTextColumn { Header = "SkillCostsID", Binding = new System.Windows.Data.Binding("SkillCostsID"), Width = 80 });
+                    DgSkills.Columns.Add(new DataGridTextColumn { Header = "SpellIconID", Binding = new System.Windows.Data.Binding("SpellIconID"), Width = 80 });
+                    DgSkills.Columns.Add(new DataGridTextColumn { Header = "DisplayNameMask", Binding = new System.Windows.Data.Binding("DisplayNameMask"), Width = 100 });
+                    DgSkills.ItemsSource = _skillLines;
+                }
+                else
+                {
+                    DgSkills.Columns.Clear();
+                    DgSkills.Columns.Add(new DataGridTextColumn { Header = "ID", Binding = new System.Windows.Data.Binding("ID"), Width = 50 });
+                    DgSkills.Columns.Add(new DataGridTextColumn { Header = "SkillLine", Binding = new System.Windows.Data.Binding("SkillLine"), Width = 70 });
+                    DgSkills.Columns.Add(new DataGridTextColumn { Header = "Spell", Binding = new System.Windows.Data.Binding("Spell"), Width = 70 });
+                    DgSkills.Columns.Add(new DataGridTextColumn { Header = "RaceMask", Binding = new System.Windows.Data.Binding("RaceMask"), Width = 70 });
+                    DgSkills.Columns.Add(new DataGridTextColumn { Header = "ClassMask", Binding = new System.Windows.Data.Binding("ClassMask"), Width = 70 });
+                    DgSkills.ItemsSource = _skillLineAbilities;
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to load skill data: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnAddSkill_Click(object sender, RoutedEventArgs e)
+        {
+            MessageBox.Show("Add Skill - TODO", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        
+        private void BtnEditSkill_Click(object sender, RoutedEventArgs e)
+        {
+            MessageBox.Show("Edit Skill - TODO", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        
+        private void BtnDeleteSkill_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedSkillFile == "SkillLine" && DgSkills.SelectedItem is SkillLine selectedSkillLine)
+            {
+                _skillLines.Remove(selectedSkillLine);
+                DgSkills.ItemsSource = null;
+                DgSkills.ItemsSource = _skillLines;
+            }
+            else if (_selectedSkillFile == "SkillLineAbility" && DgSkills.SelectedItem is SkillLineAbility selectedAbility)
+            {
+                _skillLineAbilities.Remove(selectedAbility);
+                DgSkills.ItemsSource = null;
+                DgSkills.ItemsSource = _skillLineAbilities;
+            }
+        }
+        
+        private void BtnSaveSkill_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var basePath = AppDomain.CurrentDomain.BaseDirectory;
+                var dataPath = System.IO.Path.Combine(basePath, "data");
+                
+                if (_selectedSkillFile == "SkillLine")
+                {
+                    var skillLineJsonPath = System.IO.Path.Combine(dataPath, "SkillLine.json");
+                    SkillLineParser.SaveSkillLineToJson(_skillLines, skillLineJsonPath);
+                    MessageBox.Show("SkillLine data saved successfully", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                else
+                {
+                    var skillLineAbilityJsonPath = System.IO.Path.Combine(dataPath, "SkillLineAbility.json");
+                    SkillLineAbilityParser.SaveSkillLineAbilityToJson(_skillLineAbilities, skillLineAbilityJsonPath);
+                    MessageBox.Show("SkillLineAbility data saved successfully", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to save skill data: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void TxtSkillSearch_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            var searchTerm = TxtSkillSearch.Text.ToLower();
+            
+            if (_selectedSkillFile == "SkillLine")
+            {
+                var filtered = _skillLines.Where(sl => 
+                    sl.ID.ToString().Contains(searchTerm) ||
+                    (sl.DisplayName.ContainsKey("enUS") && sl.DisplayName["enUS"].ToLower().Contains(searchTerm))
+                ).ToList();
+                DgSkills.ItemsSource = filtered;
+            }
+            else
+            {
+                var filtered = _skillLineAbilities.Where(sla => 
+                    sla.ID.ToString().Contains(searchTerm) ||
+                    sla.SkillLine.ToString().Contains(searchTerm) ||
+                    sla.Spell.ToString().Contains(searchTerm)
+                ).ToList();
+                DgSkills.ItemsSource = filtered;
+            }
+        }
+        
+        private void BtnRevertConfig_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(_currentConfigPath))
+            {
+                MessageBox.Show("No config file loaded", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+            
+            try
+            {
+                var distPath = _currentConfigPath.Replace(".conf", ".dist");
+                if (!System.IO.File.Exists(distPath))
+                {
+                    MessageBox.Show($"No .dist file found: {System.IO.Path.GetFileName(distPath)}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+                
+                var result = MessageBox.Show($"Revert {System.IO.Path.GetFileName(_currentConfigPath)} to original .dist file?\nThis will overwrite current settings.", "Confirm Revert", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                
+                if (result == MessageBoxResult.Yes)
+                {
+                    // Backup current config
+                    var backupPath = _currentConfigPath + ".backup";
+                    System.IO.File.Copy(_currentConfigPath, backupPath, true);
+                    
+                    // Copy .dist to .conf
+                    System.IO.File.Copy(distPath, _currentConfigPath, true);
+                    
+                    // Reload config
+                    BtnLoadConfig_Click(sender, e);
+                    
+                    MessageBox.Show("Config reverted to original. Backup saved as .backup file.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                    AppendToConsole($"Config reverted to original from {distPath}", "CONFIG");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to revert config: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
+        private void BtnApplyConfig_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(_currentConfigPath))
+            {
+                MessageBox.Show("No config file loaded", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+            
+            try
+            {
+                // First save the config
+                ConfigParser.SaveConfigFile(_currentConfigPath, _currentConfigSections, _originalConfigLines);
+                
+                // Then restart the servers
+                BtnStopAuth_Click(sender, e);
+                BtnStopWorld_Click(sender, e);
+                System.Threading.Thread.Sleep(2000);
+                BtnStartAuth_Click(sender, e);
+                BtnStartWorld_Click(sender, e);
+                
+                AppendToConsole($"Config applied and servers restarted", "CONFIG");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to apply config: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
         
@@ -2737,6 +3498,7 @@ FROM item_template";
                 Type = eventType,
                 Target = eventTarget,
                 Command = TxtEventCommand.Text,
+                Message = TxtEventMessage.Text,
                 ScheduledTime = scheduledTime,
                 IsEnabled = ChkEventEnabled.IsChecked ?? true,
                 IsRecurring = ChkEventRecurring.IsChecked ?? false,
@@ -2811,6 +3573,31 @@ FROM item_template";
             }
         }
         
+        private void CmbEventType_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            var selectedItem = ((ComboBoxItem)CmbEventType.SelectedItem)?.Content?.ToString() ?? "Command";
+            
+            // Check if UI elements are initialized
+            if (LblCommand == null || TxtEventCommand == null || LblMessage == null || TxtEventMessage == null)
+                return;
+            
+            // Toggle between Command and Message fields
+            if (selectedItem == "Announcement")
+            {
+                LblCommand.Visibility = Visibility.Collapsed;
+                TxtEventCommand.Visibility = Visibility.Collapsed;
+                LblMessage.Visibility = Visibility.Visible;
+                TxtEventMessage.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                LblCommand.Visibility = Visibility.Visible;
+                TxtEventCommand.Visibility = Visibility.Visible;
+                LblMessage.Visibility = Visibility.Collapsed;
+                TxtEventMessage.Visibility = Visibility.Collapsed;
+            }
+        }
+        
         private void ChkHasConditions_Checked(object sender, RoutedEventArgs e)
         {
             ConditionsPanel.Visibility = Visibility.Visible;
@@ -2821,6 +3608,264 @@ FROM item_template";
         {
             ConditionsPanel.Visibility = Visibility.Collapsed;
             TimeWindowPanel.Visibility = Visibility.Collapsed;
+        }
+        
+        private void BtnClearNotifications_Click(object sender, RoutedEventArgs e)
+        {
+            _notifications.Clear();
+        }
+        
+        private void BtnSaveNotificationSettings_Click(object sender, RoutedEventArgs e)
+        {
+            _settings.EnableTrayIcon = ChkEnableTrayIcon.IsChecked ?? false;
+            _settings.MinimizeToTray = ChkMinimizeToTray.IsChecked ?? false;
+            _settings.EnableCrashAlerts = ChkEnableCrashAlerts.IsChecked ?? false;
+            _settings.EnableAlertSound = ChkEnableAlertSound.IsChecked ?? false;
+            _settings.EnableEventNotifications = ChkEnableEventNotifications.IsChecked ?? false;
+            _settings.Save();
+            
+            // Update tray icon based on settings
+            if (_settings.EnableTrayIcon)
+            {
+                InitializeTrayIcon();
+            }
+            else if (_trayIcon != null)
+            {
+                _trayIcon.Visible = false;
+                _trayIcon.Dispose();
+                _trayIcon = null;
+            }
+            
+            MessageBox.Show("Notification settings saved successfully.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        
+        private void InitializeTrayIcon()
+        {
+            if (!_settings.EnableTrayIcon || _trayIcon != null)
+                return;
+            
+            _trayIcon = new System.Windows.Forms.NotifyIcon
+            {
+                Text = "AzerothCore Launcher",
+                Visible = true
+            };
+            
+            // Set icon (you can add an icon file to your project)
+            try
+            {
+                _trayIcon.Icon = System.Drawing.Icon.ExtractAssociatedIcon(System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "");
+            }
+            catch
+            {
+                // If no icon available, use default
+            }
+            
+            _trayIcon.DoubleClick += (s, e) =>
+            {
+                Show();
+                WindowState = WindowState.Normal;
+                Activate();
+            };
+            
+            _trayIcon.ContextMenuStrip = new System.Windows.Forms.ContextMenuStrip();
+            var showItem = new System.Windows.Forms.ToolStripMenuItem("Show");
+            showItem.Click += (s, e) =>
+            {
+                Show();
+                WindowState = WindowState.Normal;
+                Activate();
+            };
+            var exitItem = new System.Windows.Forms.ToolStripMenuItem("Exit");
+            exitItem.Click += (s, e) => Close();
+            _trayIcon.ContextMenuStrip.Items.AddRange(new[] { showItem, exitItem });
+        }
+        
+        private void ShowCrashAlert(string serverName)
+        {
+            if (!_settings.EnableCrashAlerts)
+                return;
+            
+            // Add notification to history
+            _notifications.Add(new Notification
+            {
+                Type = "Crash",
+                Message = $"{serverName} server crashed unexpectedly"
+            });
+            
+            // Show popup
+            Dispatcher.Invoke(() =>
+            {
+                var alertWindow = new Window
+                {
+                    Title = "Server Crash Alert",
+                    Width = 400,
+                    Height = 200,
+                    WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                    Owner = this
+                };
+                
+                var stackPanel = new StackPanel { Margin = new Thickness(20) };
+                var textBlock = new TextBlock
+                {
+                    Text = $"{serverName} server crashed unexpectedly!",
+                    FontSize = 16,
+                    FontWeight = FontWeights.Bold,
+                    Margin = new Thickness(0, 0, 0, 10)
+                };
+                var okButton = new Button
+                {
+                    Content = "OK",
+                    Width = 100,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 10, 0, 0)
+                };
+                okButton.Click += (s, e) => alertWindow.Close();
+                
+                stackPanel.Children.Add(textBlock);
+                stackPanel.Children.Add(okButton);
+                alertWindow.Content = stackPanel;
+                alertWindow.Show();
+                
+                // Play alert sound if enabled
+                if (_settings.EnableAlertSound)
+                {
+                    try
+                    {
+                        System.Media.SystemSounds.Exclamation.Play();
+                    }
+                    catch
+                    {
+                        // Ignore sound errors
+                    }
+                }
+            });
+        }
+        
+        private void LoadNotificationSettings()
+        {
+            ChkEnableTrayIcon.IsChecked = _settings.EnableTrayIcon;
+            ChkMinimizeToTray.IsChecked = _settings.MinimizeToTray;
+            ChkEnableCrashAlerts.IsChecked = _settings.EnableCrashAlerts;
+            ChkEnableAlertSound.IsChecked = _settings.EnableAlertSound;
+            ChkEnableEventNotifications.IsChecked = _settings.EnableEventNotifications;
+        }
+        
+        private void NotificationsTab_Selected(object sender, RoutedEventArgs e)
+        {
+            LoadNotificationSettings();
+        }
+        
+        private void MainWindow_StateChanged(object sender, EventArgs e)
+        {
+            if (WindowState == WindowState.Minimized && _settings.MinimizeToTray)
+            {
+                Hide();
+                if (_trayIcon != null)
+                {
+                    _trayIcon.ShowBalloonTip(1000, "AzerothCore Launcher", "Running in system tray", System.Windows.Forms.ToolTipIcon.Info);
+                }
+            }
+        }
+        
+        private void MainWindow_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            // Check if servers are running
+            bool authRunning = _authProcess != null && !_authProcess.HasExited;
+            bool worldRunning = _worldProcess != null && !_worldProcess.HasExited;
+            
+            if (authRunning || worldRunning)
+            {
+                var result = MessageBox.Show(
+                    "Servers are currently running. Do you want to stop them before closing?",
+                    "Stop Servers?",
+                    MessageBoxButton.YesNoCancel,
+                    MessageBoxImage.Warning);
+                
+                if (result == MessageBoxResult.Yes)
+                {
+                    // Stop servers
+                    if (authRunning)
+                    {
+                        BtnStopAuth_Click(null!, new RoutedEventArgs());
+                    }
+                    if (worldRunning)
+                    {
+                        BtnStopWorld_Click(null!, new RoutedEventArgs());
+                    }
+                    
+                    // Wait a moment for servers to stop
+                    System.Threading.Thread.Sleep(1000);
+                }
+                else if (result == MessageBoxResult.Cancel)
+                {
+                    // Cancel the close
+                    e.Cancel = true;
+                }
+                // If No, proceed with close without stopping servers
+            }
+        }
+        
+        private void DetectRunningServers()
+        {
+            try
+            {
+                // Check for running authserver
+                var authProcesses = Process.GetProcessesByName(System.IO.Path.GetFileNameWithoutExtension(_settings.AuthServerExe));
+                if (authProcesses.Length > 0)
+                {
+                    _authProcess = authProcesses[0];
+                    _authProcess.EnableRaisingEvents = true;
+                    _authProcess.Exited += (s, args) => OnAuthProcessExited();
+                    
+                    _authWasRunning = true;
+                    _authStartTime = _authProcess.StartTime;
+                    
+                    Dispatcher.Invoke(() =>
+                    {
+                        BtnStartAuth.IsEnabled = false;
+                        BtnStopAuth.IsEnabled = true;
+                        UpdateStatusLight(AuthStatusLight, "running");
+                        UpdateStatusLight(AuthStatusLightLarge, "running");
+                        AuthStatusText.Text = "Status: Running (attached)";
+                        AppendToConsole("Attached to running AuthServer process", "SYSTEM");
+                    });
+                }
+                
+                // Check for running worldserver
+                var worldProcesses = Process.GetProcessesByName(System.IO.Path.GetFileNameWithoutExtension(_settings.WorldServerExe));
+                if (worldProcesses.Length > 0)
+                {
+                    _worldProcess = worldProcesses[0];
+                    _worldProcess.EnableRaisingEvents = true;
+                    _worldProcess.Exited += (s, args) => OnWorldProcessExited();
+                    
+                    _worldWasRunning = true;
+                    _worldStartTime = _worldProcess.StartTime;
+                    
+                    Dispatcher.Invoke(() =>
+                    {
+                        BtnStartWorld.IsEnabled = false;
+                        BtnStopWorld.IsEnabled = true;
+                        UpdateStatusLight(WorldStatusLight, "running");
+                        UpdateStatusLight(WorldStatusLightLarge, "running");
+                        WorldStatusText.Text = "Status: Running (attached)";
+                        AppendToConsole("Attached to running WorldServer process", "SYSTEM");
+                    });
+                }
+                
+                // Note: Console output cannot be redirected for already running processes
+                if (authProcesses.Length > 0 || worldProcesses.Length > 0)
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        AppendToConsole("Note: Console output not available for attached processes", "SYSTEM", true);
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendToConsole($"Error detecting running servers: {ex.Message}", "SYSTEM", true);
+            }
         }
         
         private void LoadEvents()
